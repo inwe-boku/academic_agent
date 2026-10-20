@@ -48,6 +48,11 @@ Rules:
    }
 
    {
+     "type": "question",
+     "question": "a question for the user that you need answered to proceed"
+   }
+
+   {
      "type": "done",
      "message": "summary of completed work"
    }
@@ -56,6 +61,10 @@ Rules:
 7. Do not use sudo unless the user explicitly approves it.
 8. If a command might expose secrets, warn the user and ask for confirmation.
 9. After receiving command output, decide what to do next.
+10. If requirements are ambiguous or you need a decision or information from the
+    user, use the "question" type instead of guessing. The user's free-text
+    answer is returned in the next message. Ask one focused question at a time.
+11. The user may reject a command and add a comment; follow that comment.
 """
 
 
@@ -296,9 +305,16 @@ def parse_model_response(text: str) -> dict:
     return result
 
 
-def ask_confirmation(command: str) -> bool:
-    answer = input("\nExecute this command? [y/N] ").strip().lower()
-    return answer in {"y", "yes"}
+def ask_confirmation(command: str) -> tuple[bool, str]:
+    """Return (approved, feedback). Any text other than y/n is feedback."""
+    answer = input(
+        "\nExecute this command? [y/N, or type a comment to reject with feedback] "
+    ).strip()
+    if answer.lower() in {"y", "yes"}:
+        return True, ""
+    if answer.lower() in {"", "n", "no"}:
+        return False, ""
+    return False, answer
 
 
 def main() -> int:
@@ -367,16 +383,27 @@ def main() -> int:
             print(action.get("message", answer))
             messages.append({"role": "assistant", "content": answer})
 
-            follow_up = input("\nContinue? [y/N] ").strip().lower()
-            if follow_up not in {"y", "yes"}:
+            reply = input(
+                "\nReply (y = continue, Enter/n = stop, or type your answer): "
+            ).strip()
+            if reply.lower() in {"", "n", "no"}:
                 return 0
 
-            messages.append(
-                {
-                    "role": "user",
-                    "content": "Continue with the task. Inspect the files if necessary.",
-                }
-            )
+            if reply.lower() in {"y", "yes"}:
+                reply = "Continue with the task. Inspect the files if necessary."
+            messages.append({"role": "user", "content": reply})
+            continue
+
+        if action_type == "question":
+            question = action.get("question") or action.get("message") or answer
+            print(f"\nQuestion: {question}")
+            messages.append({"role": "assistant", "content": answer})
+
+            reply = input("Your answer (empty to stop): ").strip()
+            if not reply:
+                return 0
+
+            messages.append({"role": "user", "content": reply})
             continue
 
         if action_type == "done":
@@ -400,17 +427,20 @@ def main() -> int:
         if command_is_potentially_dangerous(command):
             print("\nWarning: this command appears potentially destructive.")
 
-        if not args.auto_approve and not ask_confirmation(command):
-            messages.append({"role": "assistant", "content": answer})
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        "The user rejected the proposed command. "
-                        "Propose a safer alternative or explain what is needed."
-                    ),
-                }
+        if args.auto_approve:
+            approved, feedback = True, ""
+        else:
+            approved, feedback = ask_confirmation(command)
+
+        if not approved:
+            content = (
+                "The user rejected the proposed command. "
+                "Propose a safer alternative or explain what is needed."
             )
+            if feedback:
+                content += f"\n\nUser comment: {feedback}"
+            messages.append({"role": "assistant", "content": answer})
+            messages.append({"role": "user", "content": content})
             continue
 
         try:
