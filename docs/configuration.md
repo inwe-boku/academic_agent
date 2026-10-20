@@ -8,31 +8,30 @@ All configuration is done through environment variables. The launcher script
 Location: `${XDG_CONFIG_HOME:-$HOME/.config}/academic-agent/env`
 
 The file is sourced by bash with automatic export, so it must contain
-`export NAME='value'` lines (or plain `NAME=value`). Restrict access:
+`export NAME='value'` lines (or plain `NAME=value`). Restrict access; the
+launcher warns if the file is readable by group or others:
 
 ```bash
 chmod 600 ~/.config/academic-agent/env
 ```
 
-If you call `academic_agent.py` directly instead of using the launcher, the file
-is **not** read; export the variables in your shell yourself.
+If you call `academic_agent.py` or `python -m academic_agent` directly instead of
+using the launcher, the file is **not** read; export the variables yourself.
 
 ## Variables
 
 | Variable | Required | Example | Description |
 | --- | --- | --- | --- |
-| `ACADEMIC_AI_BASE_URL` | yes | `https://<host>` | Host of the Academic AI backend. No trailing slash, no `/api/v1`. |
+| `ACADEMIC_AI_BASE_URL` | yes | `https://<host>` | Host of the Academic AI backend. No `/api/v1`. |
 | `ACADEMIC_AI_CLIENT_ID` | yes | `00000000-0000-0000-0000-000000000000` | Client-ID of your API client, sent as `X-Client-ID`. |
 | `ACADEMIC_AI_CLIENT_SECRET` | yes | | Client-Secret, sent as `X-Client-Secret`. |
-| `ACADEMIC_AI_MODEL` | yes | `gpt-5` | Model identifier from `--list-models`. |
+| `ACADEMIC_AI_MODEL` | yes | `gpt-5` | Model identifier from `--list-models` (not needed for `--list-models` itself). |
 
-Until the placeholders `REPLACE_WITH_ACADEMIC_AI_BASE_URL` and
-`REPLACE_WITH_MODEL_NAME` are replaced, the agent stops with an explanatory
-error.
+If one is missing, the agent stops and names it. None of these variables is
+passed on to commands the agent runs. `NO_COLOR` disables colours; colours are
+only used on a terminal anyway.
 
 ## Choosing a model
-
-List what your client may use:
 
 ```bash
 academic --list-models
@@ -41,27 +40,29 @@ academic --list-models
 Output columns are the model name, the context window in tokens, and the maximum
 output tokens. Considerations:
 
-- **Instruction following:** the agent depends on the model answering with
-  strict JSON. Large general models (for example `gpt-5`, `claude-opus-*`,
+- **Instruction following:** the agent depends on the model answering with one
+  JSON object. Large general models (for example `gpt-5`, `claude-opus-*`,
   `gemini-*-pro`) are the safest choice. Search-oriented models such as `sonar-*`
   are a poor fit.
-- **Context window:** the full history is resent each step. Long sessions
-  need a large window.
-- **Cost:** per-token prices come from the models endpoint; smaller models
-  (`*-mini`, `*-nano`, `*-flash`) are cheaper for simple tasks.
+- **Context window:** used for the history budget; the history is compacted at
+  70 % of it.
+- **Cost:** per-token prices come from the models endpoint and drive the cost
+  estimate; smaller models (`*-mini`, `*-nano`, `*-flash`) are cheaper for
+  simple tasks.
 
 ## Values fixed in the code
 
-These are constants in `academic_agent.py` rather than settings:
-
-| Constant | Value | Location |
+| Value | Setting | Location |
 | --- | --- | --- |
-| Max agent steps | 30 | `main()` |
-| Command timeout | 300 s | `execute_command()` |
-| Output returned to model | last 12,000 characters | `execute_command()` |
-| API request timeout | 180 s | `call_academic_ai()` |
-| File listing limit | 2,000 entries | `collect_context()` |
+| Max turns per task | 100 (lower with `--max-steps`) | `loop.MAX_STEPS` |
+| `run` timeout | 120 s default, 600 s max | `tools.DEFAULT_TIMEOUT`, `tools.MAX_TIMEOUT` |
+| Tool output cap | 200 lines / 20,000 characters | `context.MAX_OUTPUT_*` |
+| Initial listing | 3 levels / 300 entries | `context.INITIAL_*` |
+| Compaction threshold | 70 % of the context window, keep 6 turns | `context.BUDGET_RATIO`, `context.KEEP_TURNS` |
+| Invalid-reply retries | 2 per turn | `loop.MAX_INVALID_RETRIES` |
+| API retries | 2, 5, 15, 30 s | `api.RETRY_DELAYS` |
+| API request timeout | 180 s | `api.ApiClient._post_once` |
 
-Request parameters such as `temperature` or `maxTokens` are not sent, so the
-platform defaults apply. They can be added to the payload in
-`call_academic_ai()`; see [API notes](api-reference.md).
+Other request parameters such as `temperature` are not sent, so the platform
+defaults apply. They can be added to the payload in `ApiClient.chat()`; see
+[API notes](api-reference.md).

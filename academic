@@ -3,10 +3,24 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
-# Optional local config (exports ACADEMIC_AI_API_URL / _TOKEN / _MODEL)
+# Optional local config exporting ACADEMIC_AI_BASE_URL, ACADEMIC_AI_CLIENT_ID,
+# ACADEMIC_AI_CLIENT_SECRET and ACADEMIC_AI_MODEL.
 CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/academic-agent/env"
 if [ -f "$CONFIG" ]; then
+  perms="$(stat -c '%a' "$CONFIG" 2>/dev/null || stat -f '%Lp' "$CONFIG")"
+  if [ $((8#$perms & 8#077)) -ne 0 ]; then
+    echo "Warning: $CONFIG is readable by group or others (mode $perms)." >&2
+    echo "         Fix with: chmod 600 \"$CONFIG\"" >&2
+  fi
   set -a; . "$CONFIG"; set +a
 fi
 
-exec "$DIR/.venv/bin/python" "$DIR/academic_agent.py" "$@"
+PYTHON="$DIR/.venv/bin/python"
+if [ ! -x "$PYTHON" ]; then
+  echo "Error: virtual environment not found at $DIR/.venv" >&2
+  echo "Create it with:" >&2
+  echo "  python3 -m venv \"$DIR/.venv\" && \"$DIR/.venv/bin/pip\" install -r \"$DIR/requirements.txt\"" >&2
+  exit 1
+fi
+
+exec "$PYTHON" "$DIR/academic_agent.py" "$@"

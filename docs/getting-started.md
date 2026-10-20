@@ -5,7 +5,7 @@
 ## Prerequisites
 
 - Linux or macOS with `bash`
-- Python 3.9 or newer (`python3 --version`)
+- Python 3.10 or newer (`python3 --version`)
 - Credentials for an Academic AI **API client** (Client-ID and Client-Secret) and
   the API host. See [Getting API access at BOKU](boku-api-access.md) if you do
   not have these yet.
@@ -23,7 +23,8 @@ The directory contains:
 
 | File | Purpose |
 | --- | --- |
-| `academic_agent.py` | The agent |
+| `academic_agent/` | The agent (Python package) |
+| `academic_agent.py` | Entry point used by the launcher |
 | `academic` | Bash launcher that loads your config and starts the agent |
 | `requirements.txt` | Python dependencies |
 
@@ -98,19 +99,22 @@ echo "hello world" > a.txt
 academic "Count the words in a.txt and write only the number to count.txt"
 ```
 
-For every command the model proposes you will see:
+The model reads files on its own. For every change and command it proposes you
+will see something like:
 
 ```text
-Proposed command:
-  wc -w < a.txt > count.txt
-
-Reason: Count words and write the result.
-
-Execute this command? [y/N]
+  Count the words and write the result.
+[1/1] write_file count.txt
+--- a/count.txt
++++ b/count.txt
+@@ -0,0 +1 @@
++2
+Approve? [y]es / [n]o / [a]lways write_file / or type a comment to reject:
 ```
 
-Answer `y` to run it. The result is sent back to the model, which either
-proposes the next command or finishes with a summary.
+Answer `y` to apply it, or type a comment to reject it with feedback. The result
+is sent back to the model, which continues or finishes with a summary. Accept
+the final screen with `y` to end the task.
 
 ## Next steps
 
