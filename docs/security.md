@@ -21,8 +21,10 @@ Treat it with the same care as running a script you did not write.
 - **Redaction.** Bearer tokens, `sk-...` keys, private key blocks and the values
   of the removed variables are replaced by `[REDACTED]` in tool results before
   they are sent or stored.
-- **Git-based undo.** The agent never commits, stashes, resets or cleans; `/undo`
-  restores the files it touched. See [Usage](usage.md#undo-with-git).
+- **Git workflow and undo.** The agent may commit, push and open pull requests
+  with `gh`, but commands that discard work or rewrite history are flagged.
+  `/undo` restores the files it touched in the working tree; it does not undo
+  commits or pushes. See [Usage](usage.md#undo-with-git).
 
 ## Dangerous commands
 
@@ -31,8 +33,13 @@ segment, including `bash -c`, `find -exec` and `xargs`) if it contains:
 
 - `rm` with `-r`/`-f`, `find -delete`, `sudo`, `dd`, `mkfs`, redirects to
   `/dev/*` (except `/dev/null`)
-- `git reset`, `git clean`, `git checkout -- `, `git restore`, `git stash`,
-  `git commit`, `git rebase`, `git push`, `git pull`, `git fetch`, `git clone`
+- `git reset --hard`, `git clean`, `git checkout -- `, `git restore`,
+  `git stash`, `git rebase`, force pushes (`--force`, `-f`,
+  `--force-with-lease`, `+branch`) and branch deletion (`--delete`, `--prune`),
+  `git pull`, `git fetch`, `git clone`
+- `git commit`, plain `git push` and `gh` are **not** flagged: committing,
+  pushing and opening pull requests is part of the intended workflow. Commit
+  messages and PR titles/bodies are not checked for paths.
 - network and install commands: `curl`, `wget`, `ssh`, `scp`, `rsync`, `nc`,
   `pip install`, `uv pip install`, `npm`/`yarn`/`pnpm install|add`,
   `apt`/`apt-get`
@@ -48,9 +55,14 @@ program can do anything its author wrote.
 - **Shell commands are not isolated from the operating system.** A command you
   approve runs with your user's permissions. The approval prompt is the
   safeguard for `run`; read the full command, not just the model's reason.
-- `--auto-approve` runs unflagged commands without asking. Use it only in
-  disposable directories, containers or VMs, or in a git repository with
-  everything committed.
+- `--auto-approve` runs unflagged commands without asking, **including
+  `git push` and `gh pr create`**. Use it only in disposable directories,
+  containers or VMs, or in a git repository with everything committed, and with
+  credentials that can only push to branches you are willing to receive pushes
+  on (protect `main` on the server side).
+- `GH_TOKEN`/`GITHUB_TOKEN` are removed from the environment of commands like
+  every `*TOKEN*` variable, so `gh` must be logged in through `gh auth login`
+  (keyring or config file). `SSH_AUTH_SOCK` is kept, so SSH pushes work.
 - Prompt injection: `AGENTS.md` files, file contents, logs and command output
   the model reads can steer it. Be careful in repositories you do not trust.
 

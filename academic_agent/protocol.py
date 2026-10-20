@@ -43,8 +43,10 @@ Rules:
    the first failure or rejection; you get one result per action.
 4. Prefer small, reviewable changes. Use edit_file for changes to existing
    files instead of rewriting them.
-5. Never commit, stash, reset, clean, push or install packages unless the user
-   explicitly asks for it. Do not use sudo.
+5. You may use git (add, commit, push to a feature branch) and gh (e.g.
+   gh pr create) when the task or AGENTS.md calls for it. Never force-push,
+   rewrite history, reset --hard, clean, or install packages unless the user
+   explicitly asks. Do not use sudo.
 6. Files outside the project root, .git/ and secret files (.env*, *.pem, id_*)
    are not accessible.
 7. If requirements are ambiguous or you need a decision, use "question" instead

@@ -130,10 +130,11 @@ _ALWAYS_DANGEROUS = {
     "curl", "wget", "ssh", "scp", "sftp", "rsync", "nc", "ncat", "netcat",
     "apt", "apt-get",
 }
-_GIT_DANGEROUS = {
-    "clean", "push", "clone", "fetch", "pull", "commit", "stash", "restore",
-    "rebase",
-}
+# Committing, pushing and opening pull requests (gh) are part of the intended
+# workflow; only commands that discard work or rewrite history are flagged.
+_GIT_DANGEROUS = {"clean", "clone", "fetch", "pull", "stash", "restore", "rebase"}
+_FORCE_PUSH = {"-f", "--force", "--force-with-lease", "--force-if-includes",
+               "--mirror", "-d", "--delete", "--prune"}
 _GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 _SAFE_DEVICES = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"}
 
@@ -196,9 +197,24 @@ def _is_redirect(token: str) -> bool:
     return bool(re.fullmatch(r"\d*(>|>>|>\||&>|>&)", token))
 
 
+_MESSAGE_FLAGS = {"-m", "--message", "-t", "--title", "-b", "--body"}
+
+
+def _is_message(words: list[str], i: int) -> bool:
+    """Commit messages and PR titles/bodies are text, not paths."""
+    if not any(os.path.basename(w) in {"git", "gh"} for w in words[:i]):
+        return False
+    if words[i - 1] in _MESSAGE_FLAGS:
+        return True
+    flag, eq, _ = words[i].partition("=")
+    return bool(eq) and flag in {"--message", "--title", "--body"}
+
+
 def _segment_dangerous(words: list[str], root: Path) -> str | None:
     # Redirect targets and path arguments
     for i, word in enumerate(words):
+        if _is_message(words, i):
+            continue
         if _is_redirect(word) and i + 1 < len(words):
             target = words[i + 1]
             if target.startswith("/dev/") and target not in _SAFE_DEVICES:
@@ -262,8 +278,13 @@ def _segment_dangerous(words: list[str], root: Path) -> str | None:
         sub, rest = args[i], args[i + 1:]
         if sub in _GIT_DANGEROUS:
             return f"git {sub}"
-        if sub == "reset":
-            return "git reset"
+        if sub == "reset" and "--hard" in rest:
+            return "git reset --hard"
+        if sub == "push":
+            for arg in rest:
+                if arg.split("=", 1)[0] in _FORCE_PUSH or arg.startswith("+"):
+                    return f"git push {arg}"
+            return None
         if sub == "checkout" and "--" in rest:
             return "git checkout --"
         return None

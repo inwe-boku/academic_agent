@@ -114,7 +114,9 @@ model-written summary at 70 % of the context window. See
   pushing, network, installs, paths outside the project) always ask.
 - Commands run in the project root without your API credentials or other secret
   environment variables, but they are **not** sandboxed.
-- The agent never commits; `/undo` reverts its file changes via git.
+- The agent may commit, push and open pull requests with `gh`; force pushes and
+  commands that discard work are flagged. `/undo` reverts its file changes in
+  the working tree (not commits or pushes).
 
 See [Security](docs/security.md) and [Troubleshooting](docs/troubleshooting.md).
 

@@ -127,8 +127,13 @@ uncommitted changes.
 - `/undo` restores the files the agent touched from that commit (working tree
   only, the index is not changed) and deletes files it created. Files that
   already had changes at start cannot be restored and are listed as such.
-- The agent never commits, stashes, resets or cleans. Commands that would do so
-  are flagged as dangerous.
+- The agent may commit, push and open pull requests (`git commit`, `git push`,
+  `gh pr create`) when the task or `AGENTS.md` asks for it. Commands that
+  discard work or rewrite history (`git reset --hard`, `git clean`,
+  `git checkout --`, `git restore`, `git stash`, `git rebase`, force pushes) are
+  flagged as dangerous.
+- `/undo` only resets files in the working tree. It does **not** undo commits
+  or pushes; after it, the restored state shows up as uncommitted changes.
 - Changes made by shell commands (`run`) are **not** tracked; use `git diff` for
   a full view.
 - Outside a git repository a warning is printed at start, and `/undo` and
@@ -182,6 +187,8 @@ academic --clear         # delete the session of the current directory
 - Name the commands you want used: *"Run `pytest tests/test_io.py` to verify."*
 - Checks and cleanup are not run automatically. Ask for them, or put them in
   `AGENTS.md`.
+- For a git workflow, say so explicitly or put it in `AGENTS.md`, for example:
+  *"Work on a new branch, commit, push and open a pull request with gh."*
 - To only ask a question, say so: *"Do not modify anything. Explain how the
   configuration is loaded."*
 

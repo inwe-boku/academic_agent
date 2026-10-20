@@ -1,6 +1,6 @@
 # Academic Agent v2 — Specification (DRAFT)
 
-Status: all open questions decided; ready for final review.
+Status: implemented (PR #2).
 
 ## 1. Goals
 
@@ -92,12 +92,16 @@ against the schema above. On failure the agent sends a corrective message
 | exec, flagged dangerous | ask | ask | **ask** |
 
 - **Dangerous** is decided on the parsed command (via `shlex`, per pipeline
-  segment): `rm` with `-r`/`-f`, `git reset --hard`, `git clean`, `git push`,
-  `git checkout -- `, `find -delete`, `sudo`, `dd`, `mkfs`, redirects to
+  segment): `rm` with `-r`/`-f`, `git reset --hard`, `git clean`,
+  `git checkout -- `, `git restore`, `git stash`, `git rebase`, force pushes
+  and branch deletion via `git push`, `find -delete`, `sudo`, `dd`, `mkfs`, redirects to
   `/dev/*`, any path argument outside the project root, and any command
   containing `~` or `$HOME`. Network and install commands are flagged as well:
   `curl`, `wget`, `ssh`, `scp`, `rsync`, `nc`, `pip`/`pip3`/`uv pip install`,
-  `npm`/`yarn`/`pnpm install|add`, `apt`/`apt-get`, `git clone|fetch|pull|push`. It is a safety net, not a guarantee.
+  `npm`/`yarn`/`pnpm install|add`, `apt`/`apt-get`, `git clone|fetch|pull`. It is a safety net, not a guarantee.
+  `git commit`, plain `git push` and `gh` (e.g. `gh pr create`) are **not**
+  flagged: agents are intended to commit, push and open pull requests. Message
+  arguments (`-m`, `--title`, `--body`) are exempt from the path checks.
 - Prompt: `[y]es / [n]o / [a]lways this tool for the session / or type a
   comment to reject with feedback`. No "always" for dangerous commands.
 - Non-interactive stdin (no TTY) without `--auto-approve` aborts with an error.
@@ -111,10 +115,12 @@ against the schema above. On failure the agent sends a corrective message
   mode. `/undo` and `/diff` are unavailable.
 - Dirty tree: warn once; the user may continue (undo is then limited to files
   that were clean at start).
-- The agent **never commits, stashes, resets or cleans**. The tool set cannot do
-  it; `run` flags it as dangerous.
+- The agent may **commit, push and open pull requests** (`git`, `gh`) via `run`
+  when the task or `AGENTS.md` asks for it. It never stashes, hard-resets,
+  cleans or force-pushes on its own; `run` flags these as dangerous.
+- `/undo` works on the working tree only; it does not revert commits or pushes.
 - `/diff` shows `git diff` for files the agent touched. `/undo` restores those
-  files that were clean at start (`git checkout -- <files>`), after confirming
+  files that were clean at start (`git restore --source=<start> --worktree`), after confirming
   the list, and deletes files the agent created.
 - The set of touched files is tracked in the session file.
 

@@ -1,4 +1,4 @@
-"""Small read-mostly git helpers. The agent never commits, stashes or resets."""
+"""Small git helpers for listings, /diff and /undo."""
 
 import os
 import subprocess
