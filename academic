@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# Optional local config (exports ACADEMIC_AI_API_URL / _TOKEN / _MODEL)
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/academic-agent/env"
+if [ -f "$CONFIG" ]; then
+  set -a; . "$CONFIG"; set +a
+fi
+
+exec "$DIR/.venv/bin/python" "$DIR/academic_agent.py" "$@"
