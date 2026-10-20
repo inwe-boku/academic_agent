@@ -47,6 +47,16 @@ The automatic file listing skips hidden directories and common secret filenames
 (`.env`, `id_rsa`, `id_ed25519`). This is a convenience, not a guarantee. File
 contents are only sent if a command prints them.
 
+## Saved sessions
+
+To allow `--resume`, the full conversation is stored unencrypted in
+`${XDG_STATE_HOME:-~/.local/state}/academic-agent/`, one JSON file per working
+directory. It contains everything listed above, including the output of every
+approved command, so a secret that was printed once is also on disk until the
+task finishes with `done` or you delete the file. The file is created with your
+default permissions (umask). See [Usage](usage.md#resuming-a-session) for size and
+cleanup.
+
 ## Credentials
 
 - Keep the Client-Secret in `~/.config/academic-agent/env` with mode `600`, not

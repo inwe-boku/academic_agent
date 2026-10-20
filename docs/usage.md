@@ -3,13 +3,14 @@
 ## Command line
 
 ```text
-academic [--auto-approve] [--list-models] [task ...]
+academic [--auto-approve] [--resume] [--list-models] [task ...]
 ```
 
 | Argument | Meaning |
 | --- | --- |
-| `task ...` | The task in natural language. Quoting is optional but recommended. Required unless `--list-models` is used. |
+| `task ...` | The task in natural language. Quoting is optional but recommended. Required unless `--list-models` or `--resume` is used. With `--resume` it is added as your next message. |
 | `--auto-approve` | Run every proposed command without asking. See [Security](security.md). |
+| `--resume` | Continue the last session of the current directory, for example after an API failure. See [Resuming a session](#resuming-a-session). |
 | `--list-models` | Print the models available to your API client and exit. |
 
 The agent works in the **current working directory**. Always `cd` into the
@@ -55,6 +56,57 @@ Each step is one API request. Per step the model returns one of three actions:
 
 A session stops after **30 steps**. Commands are killed after **300 seconds**,
 and only the last 12,000 characters of output are returned to the model.
+
+## Resuming a session
+
+The connection to the API can be unreliable. The agent therefore retries a
+failed request automatically (connection errors, timeouts, HTTP 429 and 5xx,
+unparseable responses) up to 4 times, waiting 2, 5, 15 and 30 seconds. If all
+retries fail it prints:
+
+```text
+Progress is saved. Continue with: academic --resume
+```
+
+Run `academic --resume` in the **same directory** to continue where it stopped.
+Commands that already ran are not run again. `academic --resume "also update the
+README"` adds your text as the next message. Without text, the agent just
+continues the task.
+
+### Where the session is stored
+
+Before every API call the complete conversation history is written to
+
+```text
+${XDG_STATE_HOME:-~/.local/state}/academic-agent/<hash-of-directory>.json
+```
+
+- There is **one file per working directory**, overwritten at every step.
+  Starting a new task in the same directory replaces the old session; sessions
+  of different directories do not affect each other.
+- The file is deleted when the task ends with `done`. Sessions that were
+  aborted (`Ctrl+C`, closed terminal, API failure, step limit) stay on disk.
+- Nothing is stored inside your project, so it does not show up in `git status`.
+
+### Disk usage and cleanup
+
+The file holds the same data that is sent to the API (see
+[Security](security.md#what-is-sent-to-the-api)): the file listing (up to 2,000
+paths), `AGENTS.md` contents and up to 12,000 characters of output per command.
+Because the file is overwritten and not appended to, it stays small: typically
+tens of KB, and at most a few hundred KB for a 30-step session. The total grows
+only with the number of directories in which you left an unfinished session.
+
+Check and clean up with:
+
+```bash
+du -sh ~/.local/state/academic-agent        # total size
+ls -lt ~/.local/state/academic-agent        # sessions, newest first
+rm ~/.local/state/academic-agent/*.json     # discard all saved sessions
+```
+
+Sessions are stored as plain text and may contain command output, so treat them
+like shell history: delete them if a command printed secrets.
 
 ## Writing good tasks
 

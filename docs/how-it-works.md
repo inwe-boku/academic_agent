@@ -63,9 +63,14 @@ The first `user` message is assembled from:
 The platform does not keep conversation state. The agent holds the `messages`
 list in memory and sends all of it on each request. Consequences:
 
-- Nothing persists between runs; each `academic ...` call starts fresh.
 - Input tokens, and therefore cost and latency, grow with every step.
-- Closing the terminal ends the session; there is no resume.
+- Because the history exists only in the agent, it is written to disk before
+  every API call (`save_session()`), so a failed run can be continued with
+  `academic --resume`. Failed requests are first retried with backoff
+  (`call_academic_ai()`, `RETRY_DELAYS`). The file is removed on `done`. See
+  [Usage](usage.md#resuming-a-session).
+- Without `--resume`, each `academic ...` call starts a fresh session and
+  replaces the saved one for that directory.
 
 ## Safety layer
 
