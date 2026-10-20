@@ -1,1 +1,4 @@
 requests
+mkdocs
+mkdocs-material
+pymdown-extensions

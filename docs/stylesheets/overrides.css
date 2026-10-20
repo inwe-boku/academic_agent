@@ -1,0 +1,42 @@
+/* Lightweight modern look for Material */
+:root {
+  /* Harmonize with teal palette */
+  --md-primary-fg-color: #0f766e; /* teal-700 */
+  --md-accent-fg-color: #14b8a6;  /* teal-400 */
+}
+
+/* Slightly wider content for better scanability */
+.md-grid { max-width: 1100px; }
+
+/* Glassy header with subtle blur */
+.md-header--shadow { box-shadow: none; }
+.md-header {
+  backdrop-filter: saturate(180%) blur(8px);
+  background-color: rgba(255, 255, 255, 0.72);
+}
+[data-md-color-scheme="slate"] .md-header {
+  background-color: rgba(17, 24, 39, 0.65);
+}
+
+/* Tighten headings a bit */
+.md-typeset h1, .md-typeset h2 { letter-spacing: -0.01em; }
+
+/* Modern link styling */
+.md-typeset a {
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color .15s ease, border-color .2s ease;
+}
+.md-typeset a:hover { border-color: currentColor; }
+
+/* Softer, rounded code blocks */
+.md-typeset pre, .md-typeset code { border-radius: 8px; }
+
+/* Card-like admonitions */
+.md-typeset .admonition, .md-typeset details {
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(2, 6, 23, 0.08);
+}
+
+/* Sidebar emphasis */
+.md-sidebar--primary .md-nav__title { font-weight: 600; }
