@@ -1,0 +1,36 @@
+site_name: Academic Agent
+site_description: Terminal coding agent for the BOKU Academic AI platform
+repo_url: https://github.com/inwe-boku/academic_agent
+site_url: https://inwe-boku.github.io/academic_agent/
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - content.code.copy
+    - search.suggest
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Getting started: getting-started.md
+      - Agent setup prompt: agent-setup-prompt.md
+      - Getting API access at BOKU: boku-api-access.md
+  - Guide:
+      - Usage: usage.md
+      - Configuration: configuration.md
+      - Security: security.md
+      - Troubleshooting: troubleshooting.md
+  - Internals:
+      - How it works: how-it-works.md
+      - Academic AI API notes: api-reference.md
+      - Development: development.md
