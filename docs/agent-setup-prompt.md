@@ -29,7 +29,7 @@ and stop and ask me if something unexpected happens.
 
 ## Inputs
 
-- Repository URL: <REPOSITORY_URL>
+- Repository URL: git@github.com:inwe-boku/academic_agent.git
 - Install directory: ~/.local/share/academic-agent
 - API base URL: <API_BASE_URL>        (https, no trailing slash, no /api/v1)
 - Client-ID: <CLIENT_ID>
@@ -54,7 +54,7 @@ and stop and ask me if something unexpected happens.
    `venv` module works (`python3 -m venv --help`). Also check `git`.
 
 2. Get the code. If the install directory does not exist, run
-   `git clone <REPOSITORY_URL> ~/.local/share/academic-agent`. If it exists and
+   `git clone git@github.com:inwe-boku/academic_agent.git ~/.local/share/academic-agent`. If it exists and
    is a git repository, run `git pull --ff-only`. Otherwise stop and ask.
 
 3. Create the virtual environment in the install directory:
