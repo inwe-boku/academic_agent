@@ -40,7 +40,8 @@ Lists models available to your client. Requires `USE_API_LLM`.
 ```
 
 Prices are USD per token. `academic --list-models` prints name, context window
-and output limit.
+and output limit. The agent uses `contextWindow` for its history budget and
+`costs` for the cost estimate.
 
 ### `POST /api/v1/llm/chat`
 
@@ -75,13 +76,16 @@ Response (abridged):
 }
 ```
 
-The agent reads `data.content`.
+The agent reads `data.content` and `data.usage` (for the status line, the
+history budget and the cost estimate).
 
 **Message roles:** only `user` and `assistant` are accepted. A `system` message
 is rejected with HTTP 400 (`role: Input should be 'user' or 'assistant'`).
 
-**Optional parameters** (not sent by the agent, usable by editing
-`call_academic_ai()`):
+**Optional parameters.** The agent sends `responseFormat: {"type": "json_object"}`
+except for reasoning models (o-series, gpt-5 family); if the model rejects it
+with HTTP 400, it retries without. Other parameters can be added in
+`ApiClient.chat()` (`academic_agent/api.py`):
 
 | Parameter | Applies to | Notes |
 | --- | --- | --- |

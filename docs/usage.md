@@ -3,18 +3,23 @@
 ## Command line
 
 ```text
-academic [--auto-approve] [--resume] [--list-models] [task ...]
+academic [--accept-edits | --auto-approve] [--max-steps N] [--resume] [task ...]
+academic --list-models | --sessions | --clear
 ```
 
 | Argument | Meaning |
 | --- | --- |
-| `task ...` | The task in natural language. Quoting is optional but recommended. Required unless `--list-models` or `--resume` is used. With `--resume` it is added as your next message. |
-| `--auto-approve` | Run every proposed command without asking. See [Security](security.md). |
-| `--resume` | Continue the last session of the current directory, for example after an API failure. See [Resuming a session](#resuming-a-session). |
+| `task ...` | The task in natural language. Quoting is optional but recommended. Required unless `--resume` is used. With `--resume` it is added as your next message. |
+| `--accept-edits` | Apply file changes without asking. Shell commands still ask. |
+| `--auto-approve` | Apply file changes and run commands without asking. Commands flagged as dangerous **still ask**. See [Security](security.md). |
+| `--max-steps N` | Ask before continuing after N turns (default and maximum: 100). |
+| `--resume` | Continue the last session of the current directory. See [Resuming a session](#resuming-a-session). |
 | `--list-models` | Print the models available to your API client and exit. |
+| `--sessions` | List all saved sessions and exit. |
+| `--clear` | Delete the saved session of the current directory and exit. |
 
-The agent works in the **current working directory**. Always `cd` into the
-project first.
+The agent works in the **current working directory** (the *project root*). Always
+`cd` into the project first. The model can only read and change files inside it.
 
 ```bash
 cd ~/projects/my-project
@@ -27,86 +32,146 @@ Pick a model for a single run without editing the config:
 ACADEMIC_AI_MODEL=claude-opus-4-8 academic "Review setup.py for packaging mistakes"
 ```
 
+stdin must be a terminal unless you pass `--auto-approve`; otherwise the agent
+stops with an error instead of hanging on a prompt.
+
 ## What a session looks like
 
 ```text
---- Agent step 1 ---
-
-Proposed command:
-  ls -la
-
-Reason: Inspect the project layout.
-
-Execute this command? [y/N] y
-
-Command output:
-...
-Exit code: 0
-
---- Agent step 2 ---
+tokens 3,120 in / 180 out · session 3,120 in / 180 out · ~$0.0057
+  Read the parser, then fix the off-by-one error.
+[1/2] read_file src/parse.py
+  ✓ OK
+[2/2] edit_file src/parse.py
+--- a/src/parse.py
++++ b/src/parse.py
+@@ -10,3 +10,3 @@
+-    return items[1:]
++    return items[0:]
+Approve? [y]es / [n]o / [a]lways edit_file / or type a comment to reject: y
+  ✓ OK
 ```
 
-Each step is one API request. Per step the model returns one of three actions:
+Each turn is one API request. The model answers with one of three replies:
 
-| Action | What happens |
+| Reply | What happens |
 | --- | --- |
-| `command` | The command and reason are printed. You confirm with `y`/`yes`; anything else rejects it and tells the model to propose a safer alternative. |
-| `message` | The text is printed and you are asked `Continue? [y/N]`. Answering `y` tells the model to continue. Use this to read answers and questions from the model. |
-| `done` | The summary is printed and the agent exits. |
+| `actions` | One or more tool calls, run in order. File reads happen without asking; changes and commands ask according to the [approval rules](#approval). The batch stops at the first failure or rejection. |
+| `question` | The question is shown and your answer is sent back. An empty answer stops the agent (the session is kept). |
+| `done` | The final screen is shown: summary, files changed, commands run with exit codes, token and cost totals. Answer `y` to finish, or type a follow-up instruction. |
 
-A session stops after **30 steps**. Commands are killed after **300 seconds**,
-and only the last 12,000 characters of output are returned to the model.
+A dim status line after each turn shows tokens and the estimated cost.
+
+### Tools
+
+| Tool | Effect | Tier |
+| --- | --- | --- |
+| `read_file` | Numbered lines (200 per call, paging with `offset`/`limit`) | read |
+| `list_dir` | Directory tree, honours `.gitignore` | read |
+| `search` | Regex search (ripgrep if installed) | read |
+| `edit_file` | Exact string replacement; shows a diff | write |
+| `write_file` | Create a file, or overwrite one read in this session | write |
+| `move_file` | Rename a file within the project | write |
+| `delete_file` | Delete one file | write |
+| `run` | Shell command in the project root (default 120 s, max 600 s) | exec |
+
+`edit_file` and `write_file` refuse to change a file that the model has not read
+in this session or that changed on disk since it was read.
+
+### Approval
+
+| Tier | Default | `--accept-edits` | `--auto-approve` |
+| --- | --- | --- | --- |
+| read | auto | auto | auto |
+| write | ask (with diff) | auto | auto |
+| exec | ask | ask | auto |
+| exec, flagged dangerous | ask | ask | **ask** |
+
+At the prompt:
+
+- `y` runs the action, `n` or Enter rejects it.
+- `a` approves this tool for the rest of the session (not offered for
+  dangerous commands).
+- Anything else rejects the action and sends your text to the model as feedback.
+
+### Slash commands
+
+These work at every prompt (approval, question, final screen):
+
+| Command | Effect |
+| --- | --- |
+| `/diff` | `git diff` of the files the agent changed |
+| `/undo` | Restore changed files from the start commit and delete files the agent created, after confirming the list |
+| `/cost` | Token and cost totals of the session |
+| `/quit` | Stop; the session is kept for `--resume` |
+
+`/diff` and `/undo` need a git repository. See [Undo](#undo-with-git).
+
+### Limits
+
+- **Steps:** after 100 turns (or `--max-steps`) the agent asks whether to
+  continue for another round.
+- **Output:** each tool result is capped at 200 lines or 20,000 characters; head
+  and tail are kept with a marker such as `[... 4 120 lines omitted ...]`.
+- **History:** when the conversation reaches 70 % of the model's context window,
+  older turns are replaced by a model-written summary (shown to you). If that
+  call fails, old tool results are replaced by one-line stubs.
+- **Ctrl+C** while a command runs kills it and returns to the prompt. Ctrl+C
+  elsewhere stops the agent and keeps the session.
+
+## Undo with git
+
+At start the agent records the current commit and which files already had
+uncommitted changes.
+
+- `/undo` restores the files the agent touched from that commit (working tree
+  only, the index is not changed) and deletes files it created. Files that
+  already had changes at start cannot be restored and are listed as such.
+- The agent never commits, stashes, resets or cleans. Commands that would do so
+  are flagged as dangerous.
+- Changes made by shell commands (`run`) are **not** tracked; use `git diff` for
+  a full view.
+- Outside a git repository a warning is printed at start, and `/undo` and
+  `/diff` are unavailable. With `--accept-edits` or `--auto-approve` you are
+  asked once to confirm the mode.
 
 ## Resuming a session
 
-The connection to the API can be unreliable. The agent therefore retries a
-failed request automatically (connection errors, timeouts, HTTP 429 and 5xx,
-unparseable responses) up to 4 times, waiting 2, 5, 15 and 30 seconds. If all
-retries fail it prints:
+Failed API requests are retried automatically (connection errors, timeouts,
+HTTP 429 and 5xx) up to 4 times, waiting 2, 5, 15 and 30 seconds, or as long as
+the server's `Retry-After` header says. If all retries fail you can retry right
+away or stop:
 
 ```text
-Progress is saved. Continue with: academic --resume
+Progress is saved. Continue later with: academic --resume
 ```
 
 Run `academic --resume` in the **same directory** to continue where it stopped.
-Commands that already ran are not run again. `academic --resume "also update the
-README"` adds your text as the next message. Without text, the agent just
-continues the task.
+Actions that already ran are not repeated. `academic --resume "also update the
+README"` adds your text as the next message.
 
 ### Where the session is stored
 
-Before every API call the complete conversation history is written to
+Before every API call the conversation is written to
 
 ```text
 ${XDG_STATE_HOME:-~/.local/state}/academic-agent/<hash-of-directory>.json
 ```
 
-- There is **one file per working directory**, overwritten at every step.
-  Starting a new task in the same directory replaces the old session; sessions
-  of different directories do not affect each other.
-- The file is deleted when the task ends with `done`. Sessions that were
-  aborted (`Ctrl+C`, closed terminal, API failure, step limit) stay on disk.
-- Nothing is stored inside your project, so it does not show up in `git status`.
-
-### Disk usage and cleanup
-
-The file holds the same data that is sent to the API (see
-[Security](security.md#what-is-sent-to-the-api)): the file listing (up to 2,000
-paths), `AGENTS.md` contents and up to 12,000 characters of output per command.
-Because the file is overwritten and not appended to, it stays small: typically
-tens of KB, and at most a few hundred KB for a 30-step session. The total grows
-only with the number of directories in which you left an unfinished session.
-
-Check and clean up with:
+- One file per working directory, overwritten atomically at every step. The
+  directory has mode `700`, the file `600`.
+- Content: task, messages, touched files, start commit, token totals and the
+  list of commands run.
+- The file is deleted only when you accept the final `done` screen. Stopped or
+  failed sessions stay on disk.
+- Known secret patterns (bearer tokens, `sk-...` keys, private keys, values of
+  secret environment variables) are redacted from tool results before they are
+  stored or sent.
 
 ```bash
-du -sh ~/.local/state/academic-agent        # total size
-ls -lt ~/.local/state/academic-agent        # sessions, newest first
-rm ~/.local/state/academic-agent/*.json     # discard all saved sessions
+academic --sessions      # list saved sessions
+academic --clear         # delete the session of the current directory
 ```
-
-Sessions are stored as plain text and may contain command output, so treat them
-like shell history: delete them if a command printed secrets.
 
 ## Writing good tasks
 
@@ -115,8 +180,8 @@ like shell history: delete them if a command printed secrets.
 - Ask the model to inspect before changing: *"Look at the failing test, explain
   the cause, then fix it."*
 - Name the commands you want used: *"Run `pytest tests/test_io.py` to verify."*
-- Split large jobs into several runs. Every step resends the entire history, so
-  long sessions get slower and more expensive.
+- Checks and cleanup are not run automatically. Ask for them, or put them in
+  `AGENTS.md`.
 - To only ask a question, say so: *"Do not modify anything. Explain how the
   configuration is loaded."*
 
@@ -124,8 +189,7 @@ like shell history: delete them if a command printed secrets.
 
 The agent reads every `AGENTS.md` from the filesystem root down to the current
 directory and includes the contents in the first message. Files closer to the
-working directory come later and therefore take precedence. Use it for project
-conventions:
+working directory come later and therefore take precedence:
 
 ```markdown
 # AGENTS.md
@@ -134,22 +198,16 @@ conventions:
 - Do not modify files under `data/`.
 ```
 
-Because `AGENTS.md` content influences the commands the model proposes, review
-files from untrusted repositories before running the agent there.
+Because `AGENTS.md` content steers the model, review files from untrusted
+repositories before running the agent there.
 
 ## What the model sees about your project
 
-The first message contains the working directory, your task, the `AGENTS.md`
-content and a **file listing** (paths only, up to 2,000 entries). The listing
-skips hidden directories, `.git`, `.venv`, `venv`, `node_modules`,
-`__pycache__`, `.cache`, `dist`, `build`, and files named `.env`, `.env.local`,
-`.env.production`, `id_rsa`, `id_ed25519`. File **contents** are only sent when
-a command such as `cat` outputs them, so anything the model reads is sent to the
-API.
+The first message contains the project root, your task, the `AGENTS.md` content
+and a file listing (3 levels, at most 300 entries, `.gitignore` honoured). The
+model uses `list_dir`, `search` and `read_file` for more.
 
-## Rejecting commands
-
-If you answer `n`, the model is told the command was rejected and proposes
-something else. You cannot type free-text feedback at the prompt; to give more
-guidance, answer `n`, let the model respond with a `message`, or abort with
-`Ctrl+C` and start again with a refined task.
+File tools never access `.git/`, `.env*`, `*.pem` or `id_*`, and they reject
+paths outside the project root (including via symlinks or `..`). Files ignored by
+`.gitignore` are left out of listings and searches but can be read when the
+model names them explicitly.

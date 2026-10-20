@@ -50,7 +50,7 @@ and stop and ask me if something unexpected happens.
 
 ## Steps
 
-1. Check prerequisites: `python3 --version` (3.9 or newer) and that the
+1. Check prerequisites: `python3 --version` (3.10 or newer) and that the
    `venv` module works (`python3 -m venv --help`). Also check `git`.
 
 2. Get the code. If the install directory does not exist, run

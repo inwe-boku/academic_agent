@@ -1,10 +1,11 @@
 # Academic Agent
 
 A small terminal coding agent for the BOKU **Academic AI** platform. Give it a
-task in natural language; the model proposes shell commands, you approve each
-one, the agent runs it locally and sends the output back until the task is done.
+task in natural language; the model reads your project with built-in file
+tools, proposes edits (as diffs) and shell commands, you approve them, and the
+agent sends the results back until the task is done.
 
-One Python file (`academic_agent.py`), one dependency (`requests`).
+A small Python package (`academic_agent/`), one dependency (`requests`).
 
 > Not an official BOKU product. API usage is billed separately from normal
 > Academic AI accounts.
@@ -14,7 +15,7 @@ One Python file (`academic_agent.py`), one dependency (`requests`).
 
 ## Quick Start
 
-You need Python 3.9+, `bash`, and Academic AI API credentials (Client-ID,
+You need Python 3.10+, `bash`, and Academic AI API credentials (Client-ID,
 Client-Secret, API host). See
 [Getting API access at BOKU](docs/boku-api-access.md) if you don't have them.
 
@@ -52,28 +53,30 @@ academic "Explain this project and list the most important missing documentation
 ## Basic Usage
 
 ```bash
-academic "task description"                  # asks before every command
-academic --auto-approve "task description"   # runs commands without asking
-academic --resume                            # continue after a connection failure
+academic "task description"                  # asks before every change and command
+academic --accept-edits "task description"   # applies file changes, asks for commands
+academic --auto-approve "task description"   # asks only for dangerous commands
+academic --resume                            # continue after a failure or stop
+academic --sessions | --clear                # list / delete saved sessions
 academic --list-models                       # list available models
 ```
 
-The agent works in the **current directory**, so `cd` into the target project
-first. Place an `AGENTS.md` in the project (or any parent directory) to give the
-model standing instructions; all of them are included in the first prompt.
+The agent works in the **current directory** (the project root) and cannot
+touch files outside it. Place an `AGENTS.md` in the project (or any parent
+directory) to give the model standing instructions; all of them are included in
+the first prompt.
 
-## Resuming after a connection failure
+At any prompt you can type `/diff` (changes by the agent), `/undo` (restore them
+via git), `/cost` (token and cost totals) or `/quit`.
+
+## Resuming a session
 
 Failed API requests are retried automatically. If they keep failing, the
 conversation is already saved and `academic --resume` (in the same directory)
-continues where it stopped.
-
-Sessions are stored as plain text in
-`${XDG_STATE_HOME:-~/.local/state}/academic-agent/`: one small file per
-directory (typically tens of KB, at most a few hundred KB), overwritten at every
-step and deleted when a task finishes. Aborted sessions stay on disk and may
-contain command output, so clean up with `rm ~/.local/state/academic-agent/*.json`.
-See [Usage](docs/usage.md#resuming-a-session).
+continues where it stopped. Sessions are stored in
+`${XDG_STATE_HOME:-~/.local/state}/academic-agent/` (mode 600, secrets redacted)
+and deleted when you accept the final summary. See
+[Usage](docs/usage.md#resuming-a-session).
 
 ## Configuration
 
@@ -89,26 +92,29 @@ Variables can be set in the shell or in
 
 ## How It Works
 
-Each step (max. 30) the agent POSTs the full conversation to
-`{BASE_URL}/api/v1/llm/chat` and expects a JSON action back:
+Each turn the agent POSTs the full conversation to
+`{BASE_URL}/api/v1/llm/chat` and expects one JSON object back:
 
-| Action | Effect |
+| Reply | Effect |
 | --- | --- |
-| `command` | Shows the command and reason, asks for approval, runs it (300 s timeout), returns the output to the model |
-| `message` | Prints the text and asks whether to continue |
-| `done` | Prints a summary and exits |
+| `actions` | A batch of tool calls (`read_file`, `list_dir`, `search`, `edit_file`, `write_file`, `move_file`, `delete_file`, `run`), executed in order after approval |
+| `question` | Asks you something and sends your answer back |
+| `done` | Shows a summary, changed files, commands and costs |
 
-The API is stateless and only accepts the roles `user` and `assistant`, so the
-system prompt is prepended to the first user message. That message also holds
-the working directory, the task, a file listing (hidden directories, `.venv`,
-`node_modules` and common secret files are skipped) and any `AGENTS.md` files.
+Invalid replies are corrected automatically. Long histories are compacted with a
+model-written summary at 70 % of the context window. See
+[How it works](docs/how-it-works.md).
 
 ## Safety
 
-- Every command needs your approval unless you pass `--auto-approve`.
-- Potentially dangerous commands are flagged with a warning (not blocked).
-- Commands and their output are sent to the API; don't run it where secrets
-  would be printed. Never commit your credentials.
+- File tools are confined to the project root; `.git/`, `.env*`, `*.pem` and
+  `id_*` are never accessible.
+- File changes show a diff and need approval unless you pass `--accept-edits`
+  or `--auto-approve`. Commands flagged as dangerous (deleting, resetting,
+  pushing, network, installs, paths outside the project) always ask.
+- Commands run in the project root without your API credentials or other secret
+  environment variables, but they are **not** sandboxed.
+- The agent never commits; `/undo` reverts its file changes via git.
 
 See [Security](docs/security.md) and [Troubleshooting](docs/troubleshooting.md).
 
@@ -125,11 +131,11 @@ Browse online at https://inwe-boku.github.io/academic_agent/, or locally:
 | [API notes](docs/api-reference.md) | Platform endpoints used |
 | [Security](docs/security.md) | Approval model, secrets, costs |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors |
-| [Development](docs/development.md) | Extending the agent |
+| [Development](docs/development.md) | Tests, extending the agent |
 
 To preview the docs locally:
 
 ```bash
-pip install "mkdocs<2" mkdocs-material
+pip install -r requirements-docs.txt
 mkdocs serve
 ```

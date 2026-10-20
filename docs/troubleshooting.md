@@ -4,9 +4,10 @@
 
 | Message | Cause and fix |
 | --- | --- |
-| `ACADEMIC_AI_CLIENT_ID / ACADEMIC_AI_CLIENT_SECRET are not set.` | The config file was not loaded. Check that it exists at `~/.config/academic-agent/env` and that you start the agent through `academic`, not `python academic_agent.py`. |
-| `ACADEMIC_AI_BASE_URL is still a placeholder.` | Replace `REPLACE_WITH_ACADEMIC_AI_BASE_URL` with the real host. See [Getting API access](boku-api-access.md). |
-| `.../.venv/bin/python: No such file or directory` | The virtual environment is missing. Run the commands in [Getting started](getting-started.md), step 2. |
+| `Not configured: ACADEMIC_AI_...` | The named variables are missing or still placeholders. Check that the config file exists at `~/.config/academic-agent/env` and that you start the agent through `academic`. |
+| `Warning: ... is readable by group or others` | Run `chmod 600 ~/.config/academic-agent/env`. |
+| `Error: virtual environment not found` | Run the commands in [Getting started](getting-started.md), step 2. |
+| `stdin is not a terminal; non-interactive runs need --auto-approve.` | The agent was started from a script or pipe. Pass `--auto-approve` or run it in a terminal. |
 | `ModuleNotFoundError: No module named 'requests'` | `.venv/bin/pip install -r requirements.txt` |
 
 ## HTTP errors
@@ -51,14 +52,16 @@ curl -s "$ACADEMIC_AI_BASE_URL/api/v1/llm/models" \
 
 | Symptom | Fix |
 | --- | --- |
-| The agent prints a long free-text answer and asks `Continue?` | The model did not follow the JSON protocol, so its text was shown as a `message`. Answer `y`; if it keeps happening, switch to a stronger model. |
-| `Unrecognized model response:` | The JSON had an unknown `type`. Retry; use a stronger model. |
-| `The model returned an invalid command.` | The `command` field was missing or empty. Retry the task. |
+| `Invalid reply (...); asking the model to correct it.` | The model did not follow the JSON protocol. The agent corrects this automatically up to twice per turn. |
+| `The model sent 3 invalid replies in a row` | Type an instruction to continue, or switch to a stronger model. |
+| `... has not been read in this session` / `changed on disk since it was read` | Expected: the model must read a file before changing it. It usually recovers on its own. |
+| `outside the project root` / `access to this file is not allowed` | The model tried to use a path outside the directory you started in, or a secret file. Start the agent in the right directory. |
 | The result is slightly wrong, such as extra text in an output file | Make the task more precise (for example "write only the number"). |
-| `Command timed out after 300 seconds.` | A long-running command. Ask the model to run it in the background or in smaller parts, or run it yourself and report the result. |
-| Output seems cut off | Only the last 12,000 characters are returned to the model. Ask it to filter output with `head`, `tail` or `grep`. |
-| `Stopped after reaching the maximum number of agent steps.` | The task did not finish within 30 steps. Split it into smaller tasks. |
-| Slow responses late in a session | The whole history is resent every step. Start a new run with a narrower task. |
+| `TIMEOUT after 120 s` | A long-running command. The model can pass a `timeout` up to 600 s; ask for it, or run the command yourself and report the result. |
+| Output seems cut off | Each result is capped at 200 lines / 20,000 characters (head and tail kept). The model can page with `read_file` offset/limit or filter output. |
+| `Reached the step limit (100).` | Answer `y` to continue for another round, or split the task. |
+| A command asks for approval despite `--auto-approve` | It was flagged as dangerous (shown above the prompt). This is intended; see [Security](security.md#dangerous-commands). |
+| `/undo` says `cannot undo` for a file | The file had uncommitted changes when the agent started, or is not tracked by git. |
 
 ## Still stuck?
 
