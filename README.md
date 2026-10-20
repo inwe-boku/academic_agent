@@ -54,12 +54,26 @@ academic "Explain this project and list the most important missing documentation
 ```bash
 academic "task description"                  # asks before every command
 academic --auto-approve "task description"   # runs commands without asking
+academic --resume                            # continue after a connection failure
 academic --list-models                       # list available models
 ```
 
 The agent works in the **current directory**, so `cd` into the target project
 first. Place an `AGENTS.md` in the project (or any parent directory) to give the
 model standing instructions; all of them are included in the first prompt.
+
+## Resuming after a connection failure
+
+Failed API requests are retried automatically. If they keep failing, the
+conversation is already saved and `academic --resume` (in the same directory)
+continues where it stopped.
+
+Sessions are stored as plain text in
+`${XDG_STATE_HOME:-~/.local/state}/academic-agent/`: one small file per
+directory (typically tens of KB, at most a few hundred KB), overwritten at every
+step and deleted when a task finishes. Aborted sessions stay on disk and may
+contain command output, so clean up with `rm ~/.local/state/academic-agent/*.json`.
+See [Usage](docs/usage.md#resuming-a-session).
 
 ## Configuration
 

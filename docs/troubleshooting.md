@@ -28,6 +28,11 @@ the response body.
 
 ## Network errors
 
+Transient failures (connection errors, timeouts, HTTP 429/5xx) are retried
+automatically up to 4 times. If the agent still stops with
+`Progress is saved. Continue with: academic --resume`, run `academic --resume`
+in the same directory. See [Resuming a session](usage.md#resuming-a-session).
+
 - `requests.exceptions.ConnectionError`: no connection, wrong host name, or the
   platform is only reachable from the university network or VPN.
 - `Read timed out`: a request exceeded 180 s. Large reasoning models can be

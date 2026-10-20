@@ -4,8 +4,10 @@ import argparse
 import json
 import os
 import shlex
+import hashlib
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -21,6 +23,15 @@ BASE_URL = os.environ.get(
 CLIENT_ID = os.environ.get("ACADEMIC_AI_CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("ACADEMIC_AI_CLIENT_SECRET", "")
 MODEL = os.environ.get("ACADEMIC_AI_MODEL", "REPLACE_WITH_MODEL_NAME")
+
+# Seconds to wait between retries of a failed API call (one entry per retry).
+RETRY_DELAYS = [2, 5, 15, 30]
+
+# Sessions are stored outside the project, one file per working directory.
+STATE_DIR = (
+    Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
+    / "academic-agent"
+)
 
 
 SYSTEM_PROMPT = r"""
@@ -192,17 +203,46 @@ def api_headers() -> dict:
     }
 
 
+class TransientAPIError(RuntimeError):
+    """Network problem or HTTP 429/5xx; worth retrying."""
+
+
 def call_academic_ai(messages: list[dict]) -> str:
+    """
+    Calls the API, retrying transient failures with increasing delays.
+    """
+    for attempt in range(len(RETRY_DELAYS) + 1):
+        try:
+            return _call_academic_ai_once(messages)
+        except TransientAPIError as exc:
+            if attempt == len(RETRY_DELAYS):
+                raise
+            delay = RETRY_DELAYS[attempt]
+            print(
+                f"Transient API error ({exc}); retrying in {delay}s "
+                f"({attempt + 1}/{len(RETRY_DELAYS)})...",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+
+
+def _call_academic_ai_once(messages: list[dict]) -> str:
     """
     POST {BASE_URL}/api/v1/llm/chat (stateless, no streaming).
     The full message history is sent on every call.
     """
-    response = requests.post(
-        f"{BASE_URL}/api/v1/llm/chat",
-        headers=api_headers(),
-        json={"model": MODEL, "messages": messages},
-        timeout=180,
-    )
+    try:
+        response = requests.post(
+            f"{BASE_URL}/api/v1/llm/chat",
+            headers=api_headers(),
+            json={"model": MODEL, "messages": messages},
+            timeout=180,
+        )
+    except (requests.ConnectionError, requests.Timeout) as exc:
+        raise TransientAPIError(type(exc).__name__) from exc
+
+    if response.status_code == 429 or response.status_code >= 500:
+        raise TransientAPIError(f"HTTP {response.status_code}")
 
     if not response.ok:
         raise RuntimeError(
@@ -210,7 +250,10 @@ def call_academic_ai(messages: list[dict]) -> str:
             f"{response.text[:4000]}"
         )
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise TransientAPIError("invalid JSON in response") from exc
 
     try:
         return data["data"]["content"]
@@ -219,6 +262,37 @@ def call_academic_ai(messages: list[dict]) -> str:
             "Could not find assistant text in the API response.\n"
             + json.dumps(data, indent=2)[:4000]
         )
+
+
+def session_path(cwd: Path) -> Path:
+    digest = hashlib.sha256(str(cwd).encode()).hexdigest()[:16]
+    return STATE_DIR / f"{digest}.json"
+
+
+def save_session(cwd: Path, task: str, messages: list[dict]) -> None:
+    """Persist the history so a failed run can be continued with --resume."""
+    try:
+        path = session_path(cwd)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"cwd": str(cwd), "task": task, "messages": messages}),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+    except OSError as exc:
+        print(f"Warning: could not save session: {exc}", file=sys.stderr)
+
+
+def load_session(cwd: Path) -> dict | None:
+    try:
+        return json.loads(session_path(cwd).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def clear_session(cwd: Path) -> None:
+    session_path(cwd).unlink(missing_ok=True)
 
 
 def list_models() -> list[dict]:
@@ -336,6 +410,12 @@ def main() -> int:
         action="store_true",
         help="Execute commands without asking individually",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Continue the last session of this directory (e.g. after an "
+        "API failure) instead of starting a new one",
+    )
     args = parser.parse_args()
 
     if args.list_models:
@@ -350,30 +430,53 @@ def main() -> int:
             return 1
         return 0
 
-    if not args.task:
-        parser.error("a task is required")
-
     cwd = Path.cwd().resolve()
-    task = " ".join(args.task)
 
-    # The API only accepts the roles "user" and "assistant", so the system
-    # prompt is prepended to the first user message.
-    messages = [
-        {
-            "role": "user",
-            "content": SYSTEM_PROMPT.strip()
-            + "\n\n"
-            + build_initial_prompt(cwd, task),
-        },
-    ]
+    if args.resume:
+        session = load_session(cwd)
+        if not session:
+            print("No saved session found for this directory.", file=sys.stderr)
+            return 1
+        task = session["task"]
+        messages = session["messages"]
+        if args.task:
+            messages.append({"role": "user", "content": " ".join(args.task)})
+        elif messages[-1]["role"] == "assistant":
+            messages.append(
+                {"role": "user", "content": "Continue with the task."}
+            )
+        print(f"Resuming session: {task}")
+    else:
+        if not args.task:
+            parser.error("a task is required (or use --resume)")
+
+        task = " ".join(args.task)
+
+        # The API only accepts the roles "user" and "assistant", so the system
+        # prompt is prepended to the first user message.
+        messages = [
+            {
+                "role": "user",
+                "content": SYSTEM_PROMPT.strip()
+                + "\n\n"
+                + build_initial_prompt(cwd, task),
+            },
+        ]
 
     for step in range(30):
         print(f"\n--- Agent step {step + 1} ---")
+
+        # History ends with a user message here, so it can be resumed as is.
+        save_session(cwd, task, messages)
 
         try:
             answer = call_academic_ai(messages)
         except Exception as exc:
             print(f"API error: {exc}", file=sys.stderr)
+            print(
+                "Progress is saved. Continue with: academic --resume",
+                file=sys.stderr,
+            )
             return 1
 
         action = parse_model_response(answer)
@@ -408,6 +511,7 @@ def main() -> int:
 
         if action_type == "done":
             print(action.get("message", "Task completed."))
+            clear_session(cwd)
             return 0
 
         if action_type != "command":
