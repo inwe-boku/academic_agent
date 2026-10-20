@@ -16,6 +16,7 @@ import requests
 import threading
 import itertools
 import shutil
+import textwrap
 
 
 # Base URL of the Academic AI platform (no trailing path), e.g. https://host.
@@ -426,10 +427,35 @@ def list_models() -> list[dict]:
 
 
 def display_command(command: str, reason: str) -> None:
-    print_section('Proposed command', icon='💡', color_code=FG_CYAN)
-    print('  ' + color(command, BOLD))
+    # Print the reasoning for this step and then the actual shell command
     if reason:
-        print(color('Reason:', DIM), reason)
+        try:
+            width = shutil.get_terminal_size((80, 20)).columns
+        except Exception:
+            width = 80
+        for paragraph in str(reason).splitlines():
+            if not paragraph.strip():
+                print()
+                continue
+            for line in textwrap.wrap(paragraph, width=max(20, min(120, width)) - 4):
+                print('  ' + color(line, BOLD))
+    # Always show the command (bold), but do not show any prompts
+    if command:
+        print(color(command, BOLD))
+def display_question(question: str) -> None:
+    print_section('Question', icon='❓', color_code=FG_MAGENTA)
+    try:
+        width = shutil.get_terminal_size((80, 20)).columns
+    except Exception:
+        width = 80
+    import textwrap
+    for paragraph in str(question).splitlines():
+        if not paragraph.strip():
+            print()
+            continue
+        for line in textwrap.wrap(paragraph, width=max(20, min(120, width)) - 4):
+            print('  ' + color(line, BOLD))
+
 
 def command_is_potentially_dangerous(command: str) -> bool:
     dangerous_fragments = [
@@ -650,9 +676,10 @@ def main() -> int:
     except Exception:
         pass
 
+    step = 0
     while True:
-        for step in range(30):
-            print(f"\n--- Agent step {step + 1} ---")
+            step += 1
+            # print(f"\n--- Agent step {step} ---")
 
             # History ends with a user message here, so it can be resumed as is.
             save_session(cwd, task, messages)
@@ -701,10 +728,10 @@ def main() -> int:
 
             if action_type == "question":
                 question = action.get("question") or action.get("message") or answer
-                print(f"\nQuestion: {question}")
+                display_question(question)
                 messages.append({"role": "assistant", "content": answer})
 
-                reply = input('Your answer (empty to stop): ').strip()
+                reply = input(color('Your answer (empty to stop): ', BOLD, FG_GREEN)).strip()
                 if not reply:
                     if confirm_exit(run_log, note='The agent asked a question.'):
                         run_post_checks_and_cleanup(cwd)
@@ -782,9 +809,6 @@ def main() -> int:
                 return_code = 124
                 output = "Command timed out after 300 seconds."
 
-            print("\nCommand output:")
-            print(output if output else "(no output)")
-            print(f"\nExit code: {return_code}")
 
             run_log.append({'command': command, 'return_code': return_code})
 
@@ -799,18 +823,7 @@ def main() -> int:
                     ),
                 }
             )
-        print_section('Step limit reached', icon='⏱️', color_code=FG_YELLOW)
-        print_summary(run_log)
-        ans = input('Continue for 30 more steps? [y/N] ').strip().lower()
-        if ans in {'y', 'yes'}:
-            messages.append({'role': 'user', 'content': 'Continue with the task.'})
-            continue
-        if confirm_exit(run_log, note='Step limit reached (30 steps).'):
-            run_post_checks_and_cleanup(cwd)
-            return 1
-        else:
-            messages.append({'role': 'user', 'content': 'Continue with the task.'})
-            continue
+        
 
 
 if __name__ == "__main__":
