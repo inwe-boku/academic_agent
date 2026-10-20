@@ -12,6 +12,11 @@ from pathlib import Path
 
 import requests
 
+# Extra stdlib imports for a friendlier TUI (no new deps)
+import threading
+import itertools
+import shutil
+
 
 # Base URL of the Academic AI platform (no trailing path), e.g. https://host.
 # Endpoints are /api/v1/llm/chat and /api/v1/llm/models.
@@ -78,6 +83,121 @@ Rules:
 11. The user may reject a command and add a comment; follow that comment.
 """
 
+
+
+# ---- Simple TUI helpers (colors, sections, spinner) ----
+def _is_tty():
+    try:
+        return sys.stdout.isatty()
+    except Exception:
+        return False
+
+NO_COLOR = os.environ.get('NO_COLOR') is not None
+USE_COLOR = _is_tty() and not NO_COLOR
+
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+FG_RED = "\033[31m"
+FG_GREEN = "\033[32m"
+FG_YELLOW = "\033[33m"
+FG_BLUE = "\033[34m"
+FG_MAGENTA = "\033[35m"
+FG_CYAN = "\033[36m"
+
+def color(text: str, *codes: str) -> str:
+    if not USE_COLOR:
+        return text
+    return ''.join(codes) + text + RESET
+
+def hr(char='-', width=None):
+    if width is None:
+        try:
+            width = shutil.get_terminal_size((80, 20)).columns
+        except Exception:
+            width = 80
+    return char * max(20, min(120, width))
+
+class Spinner:
+    FRAMES = ('⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏')
+
+    def __init__(self, message: str = '', interval: float = 0.1, enabled: bool = None):
+        self.message = message
+        self.interval = interval
+        self.enabled = _is_tty() if enabled is None else enabled
+        self._stop = threading.Event()
+        self._thread = None
+
+    def start(self):
+        if not self.enabled:
+            if self.message:
+                print(self.message)
+            return self
+        def run():
+            frames = itertools.cycle(self.FRAMES)
+            prefix = color(self.message, FG_CYAN, BOLD) + ' ' if self.message else ''
+            while not self._stop.is_set():
+                frame = next(frames)
+                sys.stdout.write(f"\r{prefix}{color(frame, FG_CYAN)} ")
+                sys.stdout.flush()
+                time.sleep(self.interval)
+            try:
+                width = shutil.get_terminal_size((80, 20)).columns
+            except Exception:
+                width = 80
+            sys.stdout.write('\r' + ' ' * width + '\r')
+            sys.stdout.flush()
+        self._thread = threading.Thread(target=run, daemon=True)
+        self._thread.start()
+        return self
+
+    def stop(self):
+        if not self.enabled:
+            return
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=1)
+
+    def __enter__(self):
+        return self.start()
+
+    def __exit__(self, exc_type, exc, tb):
+        self.stop()
+
+def print_banner(cwd: Path, task: str, model: str):
+    title = f"Academic Agent — {cwd}"
+    print(hr('━'))
+    print(color(title, BOLD, FG_BLUE))
+    print(color(f"Model: {model}", DIM))
+    print(color("Task:", BOLD), task)
+    print(hr('━'))
+
+def print_section(title: str, icon: str = '•', color_code: str = FG_CYAN):
+    print()
+    print(color(f"{icon} {title}", BOLD, color_code))
+
+def print_summary(run_log: list[dict]):
+    if not run_log:
+        print(color('No commands were executed in this session.', DIM))
+        return
+    ok = sum(1 for r in run_log if r.get('return_code', 1) == 0)
+    fail = sum(1 for r in run_log if r.get('return_code', 1) != 0)
+    print(color('Summary:', BOLD, FG_MAGENTA))
+    print(f'Steps: {len(run_log)}  Success: {ok}  Failed: {fail}')
+    for i, r in enumerate(run_log, 1):
+        rc = r.get('return_code', 0)
+        status = 'OK' if rc == 0 else f'ERR {rc}'
+        cmd = r.get('command', '')
+        if len(cmd) > 90:
+            cmd = cmd[:87] + '…'
+        print(f'  {i:2d}. {status}  {cmd}')
+
+def confirm_exit(run_log: list[dict], note: str | None = None) -> bool:
+    if note:
+        print(color(note, FG_YELLOW))
+    print_summary(run_log)
+    ans = input("\nExit the agent now? [y/N] ").strip().lower()
+    return ans in {"y", "yes"}
 
 def find_agents_files(start: Path) -> list[Path]:
     """
@@ -211,20 +331,20 @@ def call_academic_ai(messages: list[dict]) -> str:
     """
     Calls the API, retrying transient failures with increasing delays.
     """
-    for attempt in range(len(RETRY_DELAYS) + 1):
-        try:
-            return _call_academic_ai_once(messages)
-        except TransientAPIError as exc:
-            if attempt == len(RETRY_DELAYS):
-                raise
-            delay = RETRY_DELAYS[attempt]
-            print(
-                f"Transient API error ({exc}); retrying in {delay}s "
-                f"({attempt + 1}/{len(RETRY_DELAYS)})...",
-                file=sys.stderr,
-            )
-            time.sleep(delay)
-
+    with Spinner('🤖 Thinking with Academic AI...', interval=0.12):
+        for attempt in range(len(RETRY_DELAYS) + 1):
+            try:
+                return _call_academic_ai_once(messages)
+            except TransientAPIError as exc:
+                if attempt == len(RETRY_DELAYS):
+                    raise
+                delay = RETRY_DELAYS[attempt]
+                print(
+                    f"Transient API error ({exc}); retrying in {delay}s "
+                    f"({attempt + 1}/{len(RETRY_DELAYS)})...",
+                    file=sys.stderr,
+                )
+                time.sleep(delay)
 
 def _call_academic_ai_once(messages: list[dict]) -> str:
     """
@@ -306,10 +426,10 @@ def list_models() -> list[dict]:
 
 
 def display_command(command: str, reason: str) -> None:
-    print("\nProposed command:")
-    print(f"  {command}")
-    print(f"\nReason: {reason}")
-
+    print_section('Proposed command', icon='💡', color_code=FG_CYAN)
+    print('  ' + color(command, BOLD))
+    if reason:
+        print(color('Reason:', DIM), reason)
 
 def command_is_potentially_dangerous(command: str) -> bool:
     dangerous_fragments = [
@@ -331,18 +451,79 @@ def command_is_potentially_dangerous(command: str) -> bool:
 
 
 def execute_command(command: str, cwd: Path) -> tuple[int, str]:
-    completed = subprocess.run(
-        command,
-        shell=True,
-        cwd=cwd,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=300,
-    )
-
-    output = completed.stdout or ""
+    with Spinner('⏳ Running shell command...', interval=0.1):
+        completed = subprocess.run(
+            command,
+            shell=True,
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=300,
+        )
+    output = completed.stdout or ''
     return completed.returncode, output[-12000:]
+
+def run_post_checks_and_cleanup(cwd: Path) -> None:
+    """Run mandatory post-run checks and remove common backup files.
+
+    Checks:
+    - Python syntax check for all files: python -m compileall .
+    - mkdocs build --strict (only if mkdocs.yml exists and mkdocs is installed)
+
+    Cleanup:
+    - Remove files matching: *.bak, *~, *.swp, *.swx, *.tmp, *.orig, *.rej
+    """
+    print_section('Post-run checks and cleanup', icon='🧹', color_code=FG_GREEN)
+
+    # 1) Python syntax check
+    try:
+        py_check = subprocess.run(
+            [sys.executable, '-m', 'compileall', '-q', '-x', r'(^|/)(\.venv|venv|node_modules|site|build|dist|__pycache__)(/|$)', '.'],
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        status = 'OK' if py_check.returncode == 0 else 'FAILED'
+        print(f"- Python syntax check: {status}")
+        if py_check.returncode != 0 and py_check.stdout:
+            print(py_check.stdout[-2000:])
+    except Exception as exc:
+        print(f"- Python syntax check: FAILED ({exc})")
+
+    # 2) MkDocs strict build (if configured and available)
+    mkdocs_cfg = cwd / 'mkdocs.yml'
+    if mkdocs_cfg.is_file():
+        try:
+            mk = subprocess.run(
+                [sys.executable, '-m', 'mkdocs', 'build', '--strict'],
+                cwd=cwd,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            status = 'OK' if mk.returncode == 0 else 'FAILED'
+            print(f"- MkDocs build: {status}")
+            if mk.returncode != 0 and mk.stdout:
+                print(mk.stdout[-2000:])
+        except Exception as exc:
+            print(f"- MkDocs build: FAILED ({exc})")
+    else:
+        print('- MkDocs build: SKIPPED')
+
+    # 3) Cleanup common backup files
+    patterns = ['*.bak', '*~', '*.swp', '*.swx', '*.tmp', '*.orig', '*.rej']
+    removed = 0
+    for pattern in patterns:
+        for path in cwd.rglob(pattern):
+            if path.is_file():
+                try:
+                    path.unlink()
+                    removed += 1
+                except OSError:
+                    pass
+    print(f"- Removed backup files: {removed}")
 
 
 def parse_model_response(text: str) -> dict:
@@ -380,16 +561,16 @@ def parse_model_response(text: str) -> dict:
 
 
 def ask_confirmation(command: str) -> tuple[bool, str]:
-    """Return (approved, feedback). Any text other than y/n is feedback."""
-    answer = input(
-        "\nExecute this command? [y/N, or type a comment to reject with feedback] "
-    ).strip()
-    if answer.lower() in {"y", "yes"}:
-        return True, ""
-    if answer.lower() in {"", "n", "no"}:
-        return False, ""
+    """Return (approved, feedback). Any text other than y/n is feedback.
+    Shows a clear prompt that input is required.
+    """
+    prompt = color('\nExecute this command? ', BOLD, FG_GREEN) + '[y/N, or type a comment to reject with feedback] '
+    answer = input(prompt).strip()
+    if answer.lower() in {'y', 'yes'}:
+        return True, ''
+    if answer.lower() in {'', 'n', 'no'}:
+        return False, ''
     return False, answer
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -463,114 +644,173 @@ def main() -> int:
             },
         ]
 
-    for step in range(30):
-        print(f"\n--- Agent step {step + 1} ---")
+    run_log: list[dict] = []
+    try:
+        print_banner(cwd, task, MODEL)
+    except Exception:
+        pass
 
-        # History ends with a user message here, so it can be resumed as is.
-        save_session(cwd, task, messages)
+    while True:
+        for step in range(30):
+            print(f"\n--- Agent step {step + 1} ---")
 
-        try:
-            answer = call_academic_ai(messages)
-        except Exception as exc:
-            print(f"API error: {exc}", file=sys.stderr)
-            print(
-                "Progress is saved. Continue with: academic --resume",
-                file=sys.stderr,
+            # History ends with a user message here, so it can be resumed as is.
+            save_session(cwd, task, messages)
+
+            try:
+                answer = call_academic_ai(messages)
+            except Exception as exc:
+                print(f"API error: {exc}", file=sys.stderr)
+                print(
+                    "Progress is saved. Continue with: academic --resume",
+                    file=sys.stderr,
+                )
+                if confirm_exit(run_log, note='An API error occurred.'):
+                    run_post_checks_and_cleanup(cwd)
+                    return 1
+                else:
+                    time.sleep(2)
+                    continue
+
+            action = parse_model_response(answer)
+            action_type = action.get("type")
+
+            if action_type == "message":
+                print(action.get("message", answer))
+                messages.append({"role": "assistant", "content": answer})
+
+                reply = input(
+                    "\nReply (y = continue, Enter/n = stop, or type your answer): "
+                ).strip()
+                if reply.lower() in {"", "n", "no"}:
+                    if confirm_exit(run_log, note='Stopping after a message from the agent.'):
+                        run_post_checks_and_cleanup(cwd)
+                        clear_session(cwd)
+                        return 0
+                    else:
+                        reply = input('Type your next instruction to continue: ').strip()
+                        if not reply:
+                            reply = 'Continue with the task. Inspect the files if necessary.'
+                        messages.append({'role': 'user', 'content': reply})
+                        continue
+
+                if reply.lower() in {"y", "yes"}:
+                    reply = "Continue with the task. Inspect the files if necessary."
+                messages.append({"role": "user", "content": reply})
+                continue
+
+            if action_type == "question":
+                question = action.get("question") or action.get("message") or answer
+                print(f"\nQuestion: {question}")
+                messages.append({"role": "assistant", "content": answer})
+
+                reply = input('Your answer (empty to stop): ').strip()
+                if not reply:
+                    if confirm_exit(run_log, note='The agent asked a question.'):
+                        run_post_checks_and_cleanup(cwd)
+                        clear_session(cwd)
+                        return 0
+                    else:
+                        reply = input('Provide an answer to continue: ').strip()
+                        if not reply:
+                            reply = 'Please proceed with reasonable defaults and explain choices.'
+
+                messages.append({"role": "user", "content": reply})
+                continue
+
+            if action_type == "done":
+                print_section('Agent completion', icon='✅', color_code=FG_GREEN)
+                print(action.get('message', 'Task completed.'))
+                print_summary(run_log)
+                if confirm_exit(run_log, note='The agent signaled completion.'):
+                    run_post_checks_and_cleanup(cwd)
+                    clear_session(cwd)
+                    return 0
+                else:
+                    follow = input('Enter next instruction to continue (or press Enter to let the agent decide): ').strip()
+                    if not follow:
+                        follow = 'Continue with follow-up improvements if any. Summarize changes before proposing new commands.'
+                    messages.append({'role': 'assistant', 'content': answer})
+                    messages.append({'role': 'user', 'content': follow})
+                    continue
+
+
+
+            if action_type != "command":
+                print("Unrecognized model response:")
+
+                print(answer)
+
+                run_post_checks_and_cleanup(cwd)
+
+                return 1
+
+            command = action.get("command")
+            reason = action.get("reason", "")
+
+            if not isinstance(command, str) or not command.strip():
+                print("The model returned an invalid command.")
+
+                run_post_checks_and_cleanup(cwd)
+
+                return 1
+
+            display_command(command, reason)
+
+            if command_is_potentially_dangerous(command):
+                print("\nWarning: this command appears potentially destructive.")
+
+            if args.auto_approve:
+                approved, feedback = True, ""
+            else:
+                approved, feedback = ask_confirmation(command)
+
+            if not approved:
+                content = (
+                    "The user rejected the proposed command. "
+                    "Propose a safer alternative or explain what is needed."
+                )
+                if feedback:
+                    content += f"\n\nUser comment: {feedback}"
+                messages.append({"role": "assistant", "content": answer})
+                messages.append({"role": "user", "content": content})
+                continue
+
+            try:
+                return_code, output = execute_command(command, cwd)
+            except subprocess.TimeoutExpired:
+                return_code = 124
+                output = "Command timed out after 300 seconds."
+
+            print("\nCommand output:")
+            print(output if output else "(no output)")
+            print(f"\nExit code: {return_code}")
+
+            run_log.append({'command': command, 'return_code': return_code})
+
+            messages.append({'role': 'assistant', 'content': answer})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"The command was:\n{command}\n\n"
+                        f"Exit code: {return_code}\n\n"
+                        f"Output:\n{output}"
+                    ),
+                }
             )
-            return 1
-
-        action = parse_model_response(answer)
-        action_type = action.get("type")
-
-        if action_type == "message":
-            print(action.get("message", answer))
-            messages.append({"role": "assistant", "content": answer})
-
-            reply = input(
-                "\nReply (y = continue, Enter/n = stop, or type your answer): "
-            ).strip()
-            if reply.lower() in {"", "n", "no"}:
-                return 0
-
-            if reply.lower() in {"y", "yes"}:
-                reply = "Continue with the task. Inspect the files if necessary."
-            messages.append({"role": "user", "content": reply})
+        print_section('Step limit reached', icon='⏱️', color_code=FG_YELLOW)
+        print_summary(run_log)
+        ans = input('Continue for 30 more steps? [y/N] ').strip().lower()
+        if ans in {'y', 'yes'}:
+            messages.append({'role': 'user', 'content': 'Continue with the task.'})
             continue
-
-        if action_type == "question":
-            question = action.get("question") or action.get("message") or answer
-            print(f"\nQuestion: {question}")
-            messages.append({"role": "assistant", "content": answer})
-
-            reply = input("Your answer (empty to stop): ").strip()
-            if not reply:
-                return 0
-
-            messages.append({"role": "user", "content": reply})
-            continue
-
-        if action_type == "done":
-            print(action.get("message", "Task completed."))
-            clear_session(cwd)
-            return 0
-
-        if action_type != "command":
-            print("Unrecognized model response:")
-            print(answer)
+        if confirm_exit(run_log, note='Step limit reached (30 steps).'):
+            run_post_checks_and_cleanup(cwd)
             return 1
-
-        command = action.get("command")
-        reason = action.get("reason", "")
-
-        if not isinstance(command, str) or not command.strip():
-            print("The model returned an invalid command.")
-            return 1
-
-        display_command(command, reason)
-
-        if command_is_potentially_dangerous(command):
-            print("\nWarning: this command appears potentially destructive.")
-
-        if args.auto_approve:
-            approved, feedback = True, ""
         else:
-            approved, feedback = ask_confirmation(command)
-
-        if not approved:
-            content = (
-                "The user rejected the proposed command. "
-                "Propose a safer alternative or explain what is needed."
-            )
-            if feedback:
-                content += f"\n\nUser comment: {feedback}"
-            messages.append({"role": "assistant", "content": answer})
-            messages.append({"role": "user", "content": content})
+            messages.append({'role': 'user', 'content': 'Continue with the task.'})
             continue
-
-        try:
-            return_code, output = execute_command(command, cwd)
-        except subprocess.TimeoutExpired:
-            return_code = 124
-            output = "Command timed out after 300 seconds."
-
-        print("\nCommand output:")
-        print(output if output else "(no output)")
-        print(f"\nExit code: {return_code}")
-
-        messages.append({"role": "assistant", "content": answer})
-        messages.append(
-            {
-                "role": "user",
-                "content": (
-                    f"The command was:\n{command}\n\n"
-                    f"Exit code: {return_code}\n\n"
-                    f"Output:\n{output}"
-                ),
-            }
-        )
-
-    print("Stopped after reaching the maximum number of agent steps.")
-    return 1
 
 
 if __name__ == "__main__":
