@@ -185,13 +185,12 @@ def format_tokens(n: int) -> str:
     return f"{n:,}"
 
 
-def status_line(prompt_tokens, completion_tokens, total_in, total_out,
-                cost) -> None:
-    cost_text = f" · ~${cost:.4f}" if cost is not None else ""
-    dim(f"tokens {format_tokens(prompt_tokens)} in / "
+def status_line(prompt_tokens, completion_tokens, total_in, total_out, cost) -> None:
+    dim(
+        f"tokens {format_tokens(prompt_tokens)} in / "
         f"{format_tokens(completion_tokens)} out · session "
         f"{format_tokens(total_in)} in / {format_tokens(total_out)} out"
-        f"{cost_text}")
+    )
 
 
 def final_screen(message: str, changed: str, run_log: list, total_in: int,
