@@ -15,7 +15,7 @@
 Clone or copy the repository to a permanent location, for example:
 
 ```bash
-git clone <your-repository-url> ~/.local/share/academic-agent
+git clone git@github.com:inwe-boku/academic_agent.git ~/.local/share/academic-agent
 cd ~/.local/share/academic-agent
 ```
 
