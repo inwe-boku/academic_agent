@@ -28,6 +28,8 @@ class Session:
     cost_usd: float | None = 0.0
     summaries: list = field(default_factory=list)
     run_log: list = field(default_factory=list)
+    # One entry per step: seconds and counts only, never message text.
+    timings: list = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Session":

@@ -115,6 +115,9 @@ class ApiClient:
         self.sleep = sleep
         self.on_retry = on_retry
         self.json_mode = supports_json_mode(config.model)
+        # Retries and seconds slept by the most recent chat() call.
+        self.last_retries = 0
+        self.last_retry_wait = 0.0
 
     def _headers(self) -> dict:
         return {
@@ -162,6 +165,8 @@ class ApiClient:
     def chat(self, messages: list[dict], json_mode=True) -> ChatResult:
         """POST /api/v1/llm/chat, retrying transient failures."""
         attempt = 0
+        self.last_retries = 0
+        self.last_retry_wait = 0.0
         while True:
             payload = {"model": self.config.model, "messages": messages}
             use_json = json_mode and self.json_mode
@@ -174,6 +179,8 @@ class ApiClient:
                     raise
                 delay = exc.retry_after or RETRY_DELAYS[attempt]
                 attempt += 1
+                self.last_retries = attempt
+                self.last_retry_wait += delay
                 if self.on_retry:
                     self.on_retry(exc, delay, attempt, len(RETRY_DELAYS))
                 self.sleep(delay)

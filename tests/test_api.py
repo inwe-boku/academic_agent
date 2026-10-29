@@ -75,6 +75,10 @@ def test_retry_delays_and_retry_after():
     ])
     assert api.chat([]).content == "done"
     assert sleeps == [2, 5, 7]
+    assert (api.last_retries, api.last_retry_wait) == (3, 14)
+    api.http.responses.append(ok())
+    api.chat([])
+    assert (api.last_retries, api.last_retry_wait) == (0, 0)
 
 
 def test_retries_exhausted():

@@ -290,3 +290,48 @@ def test_non_tty_requires_auto_approve(project, monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
     assert main(["do", "it"]) == 2
     assert "--auto-approve" in capsys.readouterr().err
+
+
+class FakeClock:
+    """Each call advances one second."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        self.now += 1.0
+        return self.now
+
+
+def test_step_timings_recorded(project, inputs, capsys):
+    (project / "a.txt").write_text("hello\n")
+    agent, api = make_agent(project, [
+        "not json",
+        actions({"tool": "read_file", "path": "a.txt"}),
+        DONE,
+    ])
+    api.last_retries, api.last_retry_wait = 2, 7.0
+    agent.clock = FakeClock()
+    inputs += ["y"]
+    assert agent.run() == 0
+    first, second = agent.session.timings
+    assert first["calls"] == 2 and first["invalid"] == 1
+    assert first["api_s"] == 2.0 and first["retries"] == 4
+    assert first["retry_wait_s"] == 14.0
+    assert first["tools"] == 1 and first["tools_s"] == 1.0
+    assert first["prompt_tokens"] == 200 and "save_s" in first
+    assert second["calls"] == 1 and "tools" not in second
+    # numbers only: no message text is stored
+    assert all(isinstance(v, (int, float)) for e in agent.session.timings
+               for v in e.values())
+    out = capsys.readouterr().out
+    assert "Time: 2 steps · API 3.0s (3 calls, 6 retries, 21.0s retry wait)" in out
+    assert "1 invalid replies" in out
+
+
+def test_timings_survive_resume_of_old_session(project):
+    path = sessions.session_path(project)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"cwd": str(project), "task": "t",
+                                "messages": [{"role": "user", "content": "x"}]}))
+    assert sessions.load(project).timings == []
