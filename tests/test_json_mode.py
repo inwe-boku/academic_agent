@@ -69,6 +69,19 @@ def test_question_then_resume_with_answer(cli, project):
     assert cli.api.calls[-1][-1] == {"role": "user", "content": "a.txt"}
 
 
+def test_edit_after_resume_needs_no_reread(cli, project):
+    (project / "a.txt").write_text("one\n")
+    cli("--auto-approve", "--json", "task", replies=[
+        actions({"tool": "read_file", "path": "a.txt"}),
+        {"type": "question", "question": "Replace with what?"}])
+    code, result, _ = cli("--auto-approve", "--json", "--resume", "two", replies=[
+        actions({"tool": "edit_file", "path": "a.txt", "old": "one", "new": "two"}),
+        DONE])
+    assert (code, result["status"]) == (0, "done")
+    assert (project / "a.txt").read_text() == "two\n"
+    assert "OK" in cli.api.calls[-1][-1]["content"]
+
+
 def test_dangerous_command_blocked_then_approved_once(cli, project):
     (project / "build").mkdir()
     rm = {"tool": "run", "command": "rm -rf build"}

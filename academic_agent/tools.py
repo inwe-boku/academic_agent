@@ -72,9 +72,10 @@ def unified_diff(old: str, new: str, rel: str) -> str:
                    for l in lines)
 
 
-def _stamp(path: Path) -> tuple[int, int]:
+def _stamp(path: Path) -> list[int]:
+    # a list, not a tuple, so it compares equal after a JSON round trip
     st = path.stat()
-    return st.st_mtime_ns, st.st_size
+    return [st.st_mtime_ns, st.st_size]
 
 
 def _read_text(path: Path, rel: str) -> str:
@@ -97,7 +98,8 @@ class Executor:
         self.root = policy.root
         self.session = session
         self.secrets = list(secrets)
-        self._read: dict[str, tuple[int, int]] = {}
+        # shared with the session so it survives --resume
+        self._read: dict[str, list[int]] = session.read_stamps
 
     # -- bookkeeping --
 
