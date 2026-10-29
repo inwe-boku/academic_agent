@@ -1,7 +1,9 @@
+import json
 import os
 import shutil
 import signal
 import time
+from dataclasses import asdict
 
 import pytest
 
@@ -91,6 +93,22 @@ def test_edit_stale_file(executor, project):
     bump(path)
     with pytest.raises(ToolError, match="changed on disk"):
         executor.prepare(Action("edit_file", {"path": "a.py", "old": "1", "new": "2"}))
+
+
+def test_read_stamps_survive_resume(executor, project):
+    """A saved and reloaded session still knows what was read (issue #10)."""
+    path = project / "a.py"
+    path.write_text("x = 1\n")
+    run(executor, "read_file", path="a.py")
+    saved = json.loads(json.dumps(asdict(executor.session)))
+    resumed = Executor(Policy(project), Session.from_dict(saved))
+    assert run(resumed, "edit_file", path="a.py", old="1", new="2").ok
+    # the edit stamp is saved as well, and a change on disk is still caught
+    again = Executor(Policy(project),
+                     Session.from_dict(json.loads(json.dumps(asdict(resumed.session)))))
+    bump(path)
+    with pytest.raises(ToolError, match="changed on disk"):
+        again.prepare(Action("edit_file", {"path": "a.py", "old": "2", "new": "3"}))
 
 
 def test_edit_stale_between_preview_and_execute(executor, project):

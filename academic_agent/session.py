@@ -21,6 +21,9 @@ class Session:
     messages: list = field(default_factory=list)
     # relative path -> {"created": bool}
     touched: dict = field(default_factory=dict)
+    # relative path -> [mtime_ns, size] when the model last read or wrote it,
+    # so edits after --resume still pass the freshness check
+    read_stamps: dict = field(default_factory=dict)
     start_commit: str | None = None
     dirty_at_start: list = field(default_factory=list)
     tokens_in: int = 0
