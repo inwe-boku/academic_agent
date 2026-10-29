@@ -1,5 +1,6 @@
 """Turn loop: ask the model, validate, approve and run actions."""
 
+import time
 from pathlib import Path
 
 from . import gitutil, ui
@@ -14,6 +15,7 @@ from .tools import Executor, ToolError, ToolResult, describe
 
 MAX_STEPS = 100
 MAX_INVALID_RETRIES = 2
+MAX_TIMINGS = 500  # per-step timing entries kept in the session
 SLASH_COMMANDS = ("/diff", "/undo", "/cost", "/quit")
 
 # Exit codes of a non-interactive (--json) run, by result status.
@@ -43,7 +45,7 @@ class Agent:
                  approver: Approver, model_info: ModelInfo | None = None,
                  git_enabled: bool = True, max_steps: int = MAX_STEPS,
                  secrets=(), executor: Executor | None = None, policy=None,
-                 interactive: bool = True):
+                 interactive: bool = True, clock=time.monotonic):
         self.root = Path(root).resolve()
         self.api = api
         self.session = session
@@ -52,13 +54,16 @@ class Agent:
         self.git_enabled = git_enabled
         self.max_steps = max_steps
         self.secrets = list(secrets)
-        self.executor = executor or Executor(policy or Policy(self.root), session)
+        self.executor = executor or Executor(policy or Policy(self.root), session,
+                                             secrets=self.secrets)
         self.budget = HistoryBudget(model_info.context_window if model_info else None)
         # interactive=False never reads stdin: every point that would ask the
         # user ends the run with a structured result (see StopForCaller).
         self.interactive = interactive
         self.result: dict | None = None
         self.steps_total = 0
+        self.clock = clock
+        self.timing: dict | None = None  # entry of the current step
 
     @property
     def messages(self) -> list:
@@ -99,6 +104,7 @@ class Agent:
             "steps": self.steps_total,
             "tokens_in": s.tokens_in,
             "tokens_out": s.tokens_out,
+            "timings": s.timings,
             "session_kept": status != "done",
         }
 
@@ -116,6 +122,7 @@ class Agent:
                 steps = 0
             steps += 1
             self.steps_total += 1
+            self._start_timing()
 
             self._ensure_budget()
             # History ends with a user message here, so it can be resumed as is.
@@ -162,8 +169,17 @@ class Agent:
     # ---- model calls -------------------------------------------------------
 
     def _chat(self, messages, json_mode=True, record=True):
-        with ui.Spinner("🤖 Thinking with Academic AI...", interval=0.12):
-            result = self.api.chat(messages, json_mode=json_mode)
+        start = self.clock()
+        try:
+            with ui.Spinner("🤖 Thinking with Academic AI...", interval=0.12,
+                            show_elapsed=True):
+                result = self.api.chat(messages, json_mode=json_mode)
+        finally:
+            self._add_timing(api_s=self.clock() - start, calls=1,
+                             retries=getattr(self.api, "last_retries", 0),
+                             retry_wait_s=getattr(self.api, "last_retry_wait", 0.0))
+        self._add_timing(prompt_tokens=result.prompt_tokens,
+                         completion_tokens=result.completion_tokens)
         s = self.session
         s.tokens_in += result.prompt_tokens
         s.tokens_out += result.completion_tokens
@@ -186,6 +202,7 @@ class Agent:
                 if attempt == MAX_INVALID_RETRIES:
                     raise InvalidReply(str(exc), result.content) from None
                 ui.dim(f"Invalid reply ({exc}); asking the model to correct it.")
+                self._add_timing(invalid=1)
                 extra += [
                     {"role": "assistant", "content": result.content},
                     {"role": "user", "content": CORRECTION.format(error=exc)},
@@ -198,6 +215,7 @@ class Agent:
         if split is None:
             return
         middle, _ = split
+        self._add_timing(compactions=1)
         ui.section("Compacting history", icon="🗜", color_code=ui.DIM)
         request = compaction_request(self.messages[0]["content"], middle,
                                      self.session.task)
@@ -233,7 +251,7 @@ class Agent:
     def _done(self, message: str) -> int | None:
         ui.final_screen(message, self._changed_files(), self.session.run_log,
                         self.session.tokens_in, self.session.tokens_out,
-                        self.session.cost_usd)
+                        self.session.cost_usd, self.session.timings)
         if not self.interactive:
             sessions.clear(self.session.cwd)
             raise StopForCaller("done", message)
@@ -303,6 +321,9 @@ class Agent:
             status = result.status or ("OK" if result.ok else "FAILED")
             mark = ui.color("  ✓", ui.FG_GREEN) if result.ok else ui.color("  ✗", ui.FG_RED)
             print(f"{mark} {status}")
+            if action.tool == "remember" and result.ok:
+                text = " ".join(action.args["text"].split())
+                print(ui.color(f"  📝 Remembered: {text}", ui.FG_MAGENTA))
             if action.tool == "run" or not result.ok:
                 ui.show_output_tail(result.output)
             body = truncate_output(redact(result.output, self.secrets))
@@ -340,15 +361,19 @@ class Agent:
         return False
 
     def _execute(self, prepared) -> ToolResult:
+        start = self.clock()
         try:
             if prepared.tier == "exec":
-                with ui.Spinner("⏳ Running shell command...", interval=0.1):
+                with ui.Spinner("⏳ Running shell command...", interval=0.1,
+                                show_elapsed=True):
                     return prepared.execute()
             return prepared.execute()
         except ToolError as exc:
             return ToolResult(False, str(exc))
         except OSError as exc:
             return ToolResult(False, f"{type(exc).__name__}: {exc}")
+        finally:
+            self._add_timing(tools_s=self.clock() - start, tools=1)
 
     def _ask_approval(self, tool: str, allow_always: bool) -> tuple[str, str]:
         while True:
@@ -390,6 +415,8 @@ class Agent:
         s = self.session
         cost = f", ~${s.cost_usd:.4f}" if s.cost_usd is not None else ""
         print(f"Tokens: {s.tokens_in:,} in / {s.tokens_out:,} out{cost}")
+        if s.timings:
+            print(ui.timing_summary(s.timings))
 
     def _split_touched(self):
         created = sorted(p for p, e in self.session.touched.items() if e.get("created"))
@@ -457,8 +484,28 @@ class Agent:
         print("Undone.")
 
     def _save(self) -> None:
+        start = self.clock()
         try:
             sessions.save(self.session)
         except OSError as exc:
             ui.warn(f"could not save session: {exc}")
+        self._add_timing(save_s=self.clock() - start)
+
+    # ---- timing ------------------------------------------------------------
+
+    def _start_timing(self) -> None:
+        self.timing = {}
+        self.session.timings.append(self.timing)
+        del self.session.timings[:-MAX_TIMINGS]
+
+    def _add_timing(self, **values) -> None:
+        """Add seconds and counts to the current step's entry."""
+        if self.timing is None:
+            return
+        for key, value in values.items():
+            if key.endswith("_s"):
+                value = round(self.timing.get(key, 0.0) + value, 3)
+            else:
+                value = self.timing.get(key, 0) + value
+            self.timing[key] = value
 

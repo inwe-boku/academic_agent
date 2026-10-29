@@ -30,8 +30,8 @@ Lists models available to your client. Requires `USE_API_LLM`.
       "contextWindow": 400000,
       "outputTokenLimit": 128000,
       "costs": [
-        {"costType": "input_tokens", "cost": 0.00000125},
-        {"costType": "output_tokens", "cost": 0.00001}
+        {"costType": "input_tokens", "cost": 0.00138},
+        {"costType": "output_tokens", "cost": 0.011}
       ]
     }
   ],
@@ -39,7 +39,7 @@ Lists models available to your client. Requires `USE_API_LLM`.
 }
 ```
 
-Prices are USD per token. `academic --list-models` prints name, context window
+Prices are per 1,000 tokens (the values above are for `gpt-5`). `academic --list-models` prints name, context window
 and output limit. The agent uses `contextWindow` for its history budget and
 `costs` for the cost estimate.
 
@@ -84,7 +84,9 @@ is rejected with HTTP 400 (`role: Input should be 'user' or 'assistant'`).
 
 **Optional parameters.** The agent sends `responseFormat: {"type": "json_object"}`
 except for reasoning models (o-series, gpt-5 family); if the model rejects it
-with HTTP 400, it retries without. Other parameters can be added in
+with HTTP 400, it retries without. With `ACADEMIC_AI_REASONING_EFFORT` set,
+reasoning models also get `reasoningEffort` (again dropped after an HTTP
+400/422). Other parameters can be added in
 `ApiClient.chat()` (`academic_agent/api.py`):
 
 | Parameter | Applies to | Notes |
@@ -118,6 +120,9 @@ on stdout:
   "steps": 3,
   "tokens_in": 5120,
   "tokens_out": 410,
+  "timings": [{"api_s": 4.48, "calls": 1, "retries": 0, "retry_wait_s": 0.0,
+               "tools_s": 0.01, "tools": 2, "save_s": 0.001,
+               "prompt_tokens": 1291, "completion_tokens": 332}],
   "session_kept": true
 }
 ```
@@ -125,7 +130,9 @@ on stdout:
 `status` is one of `done`, `error`, `question`, `blocked`, `step_limit`
 and `interrupted`. `blocked_*` and `reason` appear only for `blocked`, and
 `blocked_command` only when the blocked action is a `run`. `message` is
-redacted like saved sessions. New fields may be added within version 1.
+redacted like saved sessions. `steps` counts the steps of this invocation;
+`timings` covers the whole session, one entry per step (see
+[Troubleshooting](troubleshooting.md#slow-sessions)). New fields may be added within version 1.
 
 ## Endpoints not used
 

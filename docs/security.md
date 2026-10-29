@@ -73,6 +73,7 @@ it to the model provider:
 
 - your task text and the project root path
 - the initial file listing (paths, up to 300 entries) and `AGENTS.md` content
+- the project memory (`.academic/MEMORY.md`, up to 8,000 characters)
 - the result of every action: file contents the model reads, search matches,
   command output (capped at 200 lines or 20,000 characters each)
 - the model's own replies and, when the history is compacted, its summary
@@ -80,6 +81,24 @@ it to the model provider:
 Do not use the agent on data that must not leave BOKU's approved AI services.
 Check BOKU's guidelines for the models you select, since different models are
 hosted by different providers.
+
+## Project memory
+
+`remember` writes notes to `.academic/MEMORY.md` without approval, because
+it can only append short lines to that one file. Each save is printed.
+Safeguards:
+
+- Notes that contain anything the session redaction would catch (private
+  keys, bearer tokens, `sk-` keys, values of secret environment variables)
+  are refused, not saved.
+- The file and `.gitignore` must resolve inside the project root, so a
+  symlinked `.academic` cannot redirect the write.
+- In git repositories `.academic/` is added to `.gitignore`, so notes are not
+  committed by accident.
+- Notes are presented to the model as reference data with lower priority
+  than `AGENTS.md` and the user. Like `AGENTS.md`, a memory file in an
+  untrusted checkout can steer the model, so review it before you run the
+  agent there.
 
 ## Non-interactive runs (`--json`)
 

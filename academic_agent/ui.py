@@ -55,9 +55,10 @@ def hr(char="-") -> str:
 class Spinner:
     FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
-    def __init__(self, message="", interval=0.1, enabled=None):
+    def __init__(self, message="", interval=0.1, enabled=None, show_elapsed=False):
         self.message = message
         self.interval = interval
+        self.show_elapsed = show_elapsed
         self.enabled = is_tty() if enabled is None else enabled
         self._stop = threading.Event()
         self._thread = None
@@ -69,8 +70,12 @@ class Spinner:
         def run():
             frames = itertools.cycle(self.FRAMES)
             prefix = color(self.message, FG_CYAN, BOLD) + " " if self.message else ""
+            start = time.monotonic()
             while not self._stop.is_set():
-                sys.stdout.write(f"\r{prefix}{color(next(frames), FG_CYAN)} ")
+                elapsed = time.monotonic() - start
+                suffix = (color(f"{elapsed:.0f}s ", DIM)
+                          if self.show_elapsed and elapsed >= 1 else "")
+                sys.stdout.write(f"\r{prefix}{color(next(frames), FG_CYAN)} {suffix}")
                 sys.stdout.flush()
                 time.sleep(self.interval)
             sys.stdout.write("\r" + " " * term_width() + "\r")
@@ -114,6 +119,12 @@ def banner(cwd, task: str, model: str) -> None:
 def section(title: str, icon="•", color_code=FG_CYAN) -> None:
     print()
     print(color(f"{icon} {title}", BOLD, color_code))
+
+
+def clear_line() -> None:
+    if is_tty():
+        sys.stdout.write("\r" + " " * term_width() + "\r")
+        sys.stdout.flush()
 
 
 def warn(text: str) -> None:
@@ -198,8 +209,33 @@ def status_line(prompt_tokens, completion_tokens, total_in, total_out, cost) -> 
     )
 
 
+def timing_summary(timings: list) -> str:
+    """One line: where the session's time went (excludes time spent waiting
+    for the user)."""
+    total = {}
+    for entry in timings:
+        for key, value in entry.items():
+            total[key] = total.get(key, 0) + value
+    api = total.get("api_s", 0.0)
+    wait = total.get("retry_wait_s", 0.0)
+    parts = [f"API {api:.1f}s ({total.get('calls', 0)} calls"]
+    if total.get("retries"):
+        parts[0] += f", {total['retries']} retries, {wait:.1f}s retry wait"
+    parts[0] += ")"
+    parts.append(f"tools {total.get('tools_s', 0.0):.1f}s "
+                 f"({total.get('tools', 0)} actions)")
+    parts.append(f"session saves {total.get('save_s', 0.0):.2f}s")
+    extras = []
+    if total.get("invalid"):
+        extras.append(f"{total['invalid']} invalid replies")
+    if total.get("compactions"):
+        extras.append(f"{total['compactions']} compactions")
+    line = f"{len(timings)} steps · " + " · ".join(parts)
+    return line + (" · " + ", ".join(extras) if extras else "")
+
+
 def final_screen(message: str, changed: str, run_log: list, total_in: int,
-                 total_out: int, cost) -> None:
+                 total_out: int, cost, timings=()) -> None:
     section("Agent completion", icon="✅", color_code=FG_GREEN)
     wrap_print(message or "Task completed.")
     print()
@@ -219,3 +255,5 @@ def final_screen(message: str, changed: str, run_log: list, total_in: int,
     print(color("Tokens:", BOLD, FG_MAGENTA),
           f"{format_tokens(total_in)} in / {format_tokens(total_out)} out"
           f"{cost_text}")
+    if timings:
+        print(color("Time:", BOLD, FG_MAGENTA), timing_summary(timings))

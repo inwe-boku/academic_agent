@@ -53,6 +53,7 @@ def test_done(cli, project):
     assert result["message"] == "created new.txt"
     assert result["changed_files"] == ["new.txt"]
     assert result["steps"] == 2 and result["session_kept"] is False
+    assert len(result["timings"]) == 2 and result["timings"][0]["calls"] == 1
     assert "Agent completion" in err  # human output went to stderr
     assert sessions.load(project) is None
 
