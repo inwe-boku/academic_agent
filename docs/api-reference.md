@@ -30,8 +30,8 @@ Lists models available to your client. Requires `USE_API_LLM`.
       "contextWindow": 400000,
       "outputTokenLimit": 128000,
       "costs": [
-        {"costType": "input_tokens", "cost": 0.00000125},
-        {"costType": "output_tokens", "cost": 0.00001}
+        {"costType": "input_tokens", "cost": 0.00138},
+        {"costType": "output_tokens", "cost": 0.011}
       ]
     }
   ],
@@ -39,7 +39,7 @@ Lists models available to your client. Requires `USE_API_LLM`.
 }
 ```
 
-Prices are USD per token. `academic --list-models` prints name, context window
+Prices are per 1,000 tokens (the values above are for `gpt-5`). `academic --list-models` prints name, context window
 and output limit. The agent uses `contextWindow` for its history budget and
 `costs` for the cost estimate.
 
@@ -84,7 +84,9 @@ is rejected with HTTP 400 (`role: Input should be 'user' or 'assistant'`).
 
 **Optional parameters.** The agent sends `responseFormat: {"type": "json_object"}`
 except for reasoning models (o-series, gpt-5 family); if the model rejects it
-with HTTP 400, it retries without. Other parameters can be added in
+with HTTP 400, it retries without. With `ACADEMIC_AI_REASONING_EFFORT` set,
+reasoning models also get `reasoningEffort` (again dropped after an HTTP
+400/422). Other parameters can be added in
 `ApiClient.chat()` (`academic_agent/api.py`):
 
 | Parameter | Applies to | Notes |

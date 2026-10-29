@@ -11,6 +11,7 @@ import requests
 # Seconds to wait between retries of a failed API call (one entry per retry).
 RETRY_DELAYS = [2, 5, 15, 30]
 MAX_RETRY_AFTER = 300
+REASONING_EFFORTS = ("low", "medium", "high")
 
 
 class ApiError(RuntimeError):
@@ -37,6 +38,7 @@ class Config:
     client_id: str
     client_secret: str
     model: str
+    reasoning_effort: str = ""
 
     @classmethod
     def from_env(cls, env=None) -> "Config":
@@ -46,6 +48,7 @@ class Config:
             client_id=env.get("ACADEMIC_AI_CLIENT_ID", ""),
             client_secret=env.get("ACADEMIC_AI_CLIENT_SECRET", ""),
             model=env.get("ACADEMIC_AI_MODEL", ""),
+            reasoning_effort=env.get("ACADEMIC_AI_REASONING_EFFORT", "").strip().lower(),
         )
 
     def validate(self, need_model=True) -> None:
@@ -60,6 +63,10 @@ class Config:
                 "Not configured: " + ", ".join(missing)
                 + ". See docs/configuration.md."
             )
+        if self.reasoning_effort and self.reasoning_effort not in REASONING_EFFORTS:
+            raise ConfigError(
+                "ACADEMIC_AI_REASONING_EFFORT must be one of "
+                + ", ".join(REASONING_EFFORTS) + ".")
 
 
 @dataclass
@@ -73,7 +80,7 @@ class ChatResult:
 class ModelInfo:
     name: str
     context_window: int | None = None
-    input_cost: float | None = None   # USD per token
+    input_cost: float | None = None   # per 1,000 tokens, as /models reports
     output_cost: float | None = None
 
     @classmethod
@@ -90,13 +97,19 @@ class ModelInfo:
     def cost(self, prompt_tokens: int, completion_tokens: int) -> float | None:
         if self.input_cost is None or self.output_cost is None:
             return None
-        return prompt_tokens * self.input_cost + completion_tokens * self.output_cost
+        return (prompt_tokens * self.input_cost
+                + completion_tokens * self.output_cost) / 1000
+
+
+def is_reasoning_model(model: str) -> bool:
+    """OpenAI reasoning models (o-series, gpt-5 family)."""
+    return bool(re.match(r"(o\d|gpt-5)", model.lower()))
 
 
 def supports_json_mode(model: str) -> bool:
     """responseFormat is documented for standard OpenAI and Mistral models,
-    not for reasoning models (o-series, gpt-5 family)."""
-    return not re.match(r"(o\d|gpt-5)", model.lower())
+    not for reasoning models."""
+    return not is_reasoning_model(model)
 
 
 def _retry_after(response) -> float | None:
@@ -115,6 +128,13 @@ class ApiClient:
         self.sleep = sleep
         self.on_retry = on_retry
         self.json_mode = supports_json_mode(config.model)
+        # reasoningEffort only applies to reasoning models; the time a turn
+        # takes grows with the reasoning tokens the model spends.
+        self.reasoning_effort = (config.reasoning_effort
+                                 if is_reasoning_model(config.model) else "")
+        # Retries and seconds slept by the most recent chat() call.
+        self.last_retries = 0
+        self.last_retry_wait = 0.0
 
     def _headers(self) -> dict:
         return {
@@ -162,11 +182,15 @@ class ApiClient:
     def chat(self, messages: list[dict], json_mode=True) -> ChatResult:
         """POST /api/v1/llm/chat, retrying transient failures."""
         attempt = 0
+        self.last_retries = 0
+        self.last_retry_wait = 0.0
         while True:
             payload = {"model": self.config.model, "messages": messages}
             use_json = json_mode and self.json_mode
             if use_json:
                 payload["responseFormat"] = {"type": "json_object"}
+            if self.reasoning_effort:
+                payload["reasoningEffort"] = self.reasoning_effort
             try:
                 return self._post_once(payload)
             except TransientApiError as exc:
@@ -174,14 +198,21 @@ class ApiClient:
                     raise
                 delay = exc.retry_after or RETRY_DELAYS[attempt]
                 attempt += 1
+                self.last_retries = attempt
+                self.last_retry_wait += delay
                 if self.on_retry:
                     self.on_retry(exc, delay, attempt, len(RETRY_DELAYS))
                 self.sleep(delay)
             except ApiError as exc:
-                # The model may not accept responseFormat: retry without it.
-                if use_json and exc.status in (400, 422):
-                    self.json_mode = False
-                    continue
+                # The model may not accept responseFormat or reasoningEffort:
+                # retry without them.
+                if exc.status in (400, 422):
+                    if use_json:
+                        self.json_mode = False
+                        continue
+                    if self.reasoning_effort:
+                        self.reasoning_effort = ""
+                        continue
                 raise
 
     def models(self) -> list[dict]:
