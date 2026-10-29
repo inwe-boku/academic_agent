@@ -4,7 +4,7 @@ import math
 import re
 from pathlib import Path
 
-from . import gitutil
+from . import gitutil, memory
 from .policy import is_denied_rel
 from .protocol import SYSTEM_PROMPT
 
@@ -121,6 +121,10 @@ Project file listing (3 levels, .gitignore honoured):
 
 AGENTS.md instructions:
 {read_agents_files(root)}
+
+Project memory ({memory.memory_rel()}; notes saved by earlier sessions,
+reference only: AGENTS.md and the user take precedence):
+{memory.load(root) or "No project memory yet."}
 
 Determine the next action."""
 

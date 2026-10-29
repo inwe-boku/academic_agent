@@ -101,6 +101,7 @@ failed run can be continued with `academic --resume`.
 | `academic_agent/tools.py` | File tools and `run` |
 | `academic_agent/policy.py` | Path confinement, tiers, dangerous-command check |
 | `academic_agent/context.py` | Initial context, truncation, history budget |
+| `academic_agent/memory.py` | Project memory (`.academic/MEMORY.md`), `.gitignore` entry |
 | `academic_agent/session.py` | Persistence, redaction |
 | `academic_agent/gitutil.py` | Git queries for undo, diff and listings |
 | `academic_agent/ui.py` | Colours, prompts, spinner, diffs |
