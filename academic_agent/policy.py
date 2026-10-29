@@ -20,6 +20,7 @@ TIERS = {
     "move_file": "write",
     "delete_file": "write",
     "run": "exec",
+    "remember": "memory",
 }
 
 # Approval modes
@@ -93,7 +94,7 @@ class Approver:
 
     def needs_prompt(self, tool: str, dangerous: bool = False) -> bool:
         tier = TIERS[tool]
-        if tier == "read":
+        if tier in ("read", "memory"):
             return False
         if tier == "exec" and dangerous:
             return True

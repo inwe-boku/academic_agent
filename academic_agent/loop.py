@@ -39,7 +39,8 @@ class Agent:
         self.git_enabled = git_enabled
         self.max_steps = max_steps
         self.secrets = list(secrets)
-        self.executor = executor or Executor(policy or Policy(self.root), session)
+        self.executor = executor or Executor(policy or Policy(self.root), session,
+                                             secrets=self.secrets)
         self.budget = HistoryBudget(model_info.context_window if model_info else None)
         self.clock = clock
         self.timing: dict | None = None  # entry of the current step
@@ -247,6 +248,9 @@ class Agent:
             status = result.status or ("OK" if result.ok else "FAILED")
             mark = ui.color("  ✓", ui.FG_GREEN) if result.ok else ui.color("  ✗", ui.FG_RED)
             print(f"{mark} {status}")
+            if action.tool == "remember" and result.ok:
+                text = " ".join(action.args["text"].split())
+                print(ui.color(f"  📝 Remembered: {text}", ui.FG_MAGENTA))
             if action.tool == "run" or not result.ok:
                 ui.show_output_tail(result.output)
             body = truncate_output(redact(result.output, self.secrets))

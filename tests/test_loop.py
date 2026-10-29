@@ -292,6 +292,18 @@ def test_non_tty_requires_auto_approve(project, monkeypatch, capsys):
     assert "--auto-approve" in capsys.readouterr().err
 
 
+def test_remember_runs_without_prompt_and_is_shown(project, inputs, capsys):
+    agent, api = make_agent(project, [
+        actions({"tool": "remember", "text": "Build with make all"}),
+        DONE,
+    ])
+    inputs += ["y"]  # only the final "Accept and finish?"
+    assert agent.run() == 0
+    assert "📝 Remembered: Build with make all" in capsys.readouterr().out
+    assert "[1] remember Build with make all: saved" in api.calls[1][-1]["content"]
+    assert "Build with make all" in (project / ".academic" / "MEMORY.md").read_text()
+
+
 class FakeClock:
     """Each call advances one second."""
 

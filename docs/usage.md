@@ -74,6 +74,7 @@ A dim status line after each turn shows tokens and the estimated cost.
 | `move_file` | Rename a file within the project | write |
 | `delete_file` | Delete one file | write |
 | `run` | Shell command in the project root (default 120 s, max 600 s) | exec |
+| `remember` | Save a project fact to the [project memory](#project-memory) | memory (never asks) |
 
 `edit_file` and `write_file` refuse to change a file that the model has not read
 in this session or that changed on disk since it was read.
@@ -208,10 +209,32 @@ working directory come later and therefore take precedence:
 Because `AGENTS.md` content steers the model, review files from untrusted
 repositories before running the agent there.
 
+## Project memory
+
+New sessions don't remember earlier ones. When the model learns something
+durable about your project, such as where things are, how to run the tests,
+conventions or pitfalls, it saves a one-line note with `remember`. This
+never asks for approval, but every save is shown:
+
+```
+[1/1] remember Tests: run `pytest -q` from the repo root
+  ✓ saved; added .academic/ to .gitignore
+  📝 Remembered: Tests: run `pytest -q` from the repo root
+```
+
+The notes go to `.academic/MEMORY.md` in the project root. Every new session
+gets them in its first message, after `AGENTS.md`, which still takes
+precedence. In a git repository, the first save adds `.academic/` to
+`.gitignore`, so notes stay on your machine.
+
+The file is plain markdown: edit it, remove wrong notes, or delete it to
+start over. Rules that should apply to everyone working on the project
+belong in `AGENTS.md`, not in memory.
+
 ## What the model sees about your project
 
-The first message contains the project root, your task, the `AGENTS.md` content
-and a file listing (3 levels, at most 300 entries, `.gitignore` honoured). The
+The first message contains the project root, your task, the `AGENTS.md` content,
+the [project memory](#project-memory) and a file listing (3 levels, at most 300 entries, `.gitignore` honoured). The
 model uses `list_dir`, `search` and `read_file` for more.
 
 File tools never access `.git/`, `.env*`, `*.pem` or `id_*`, and they reject
