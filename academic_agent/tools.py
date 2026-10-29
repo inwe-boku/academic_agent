@@ -23,6 +23,8 @@ DEFAULT_TIMEOUT = 120
 MAX_TIMEOUT = 600
 MAX_SEARCH_MATCHES = 500
 MAX_SEARCH_FILE_SIZE = 2_000_000
+EDIT_CONTEXT_LINES = 3   # around the closest match when 'old' is not found
+MAX_EDIT_CONTEXT = 30
 
 
 class ToolError(Exception):
@@ -90,6 +92,21 @@ def _read_text(path: Path, rel: str) -> str:
         return data.decode("utf-8")
     except UnicodeDecodeError:
         raise ToolError(f"{rel}: not valid UTF-8 text") from None
+
+
+def _closest_match(text: str, old: str) -> str:
+    """Numbered file lines around the line most like the first line of old."""
+    first = next((l.strip() for l in old.splitlines() if l.strip()), "")
+    lines = text.splitlines()
+    stripped = [l.strip() for l in lines]
+    match = difflib.get_close_matches(first, stripped, n=1, cutoff=0.5) if first else []
+    if not match:
+        return ""
+    best = stripped.index(match[0])
+    lo = max(0, best - EDIT_CONTEXT_LINES)
+    hi = min(len(lines), lo + MAX_EDIT_CONTEXT,
+             best + len(old.splitlines()) + EDIT_CONTEXT_LINES)
+    return "\n".join(f"{n:>5}  {line}" for n, line in enumerate(lines[lo:hi], lo + 1))
 
 
 class Executor:
@@ -257,7 +274,16 @@ class Executor:
             raise ToolError("'old' must not be empty")
         count = old_text.count(a["old"])
         if count == 0:
-            raise ToolError(f"{rel}: 'old' text not found")
+            # Retrying from memory loops (issue #13): show the real text and
+            # require a fresh read before the next edit of this file.
+            self._read.pop(rel, None)
+            message = (f"{rel}: 'old' text not found, so this edit was not "
+                       "applied. The file differs from what you assumed: read "
+                       "it again before editing it again.")
+            context = _closest_match(old_text, a["old"])
+            if context:
+                message += f"\nClosest match in the file:\n{context}"
+            raise ToolError(message)
         if count > 1 and not a.get("replace_all"):
             raise ToolError(f"{rel}: 'old' text is ambiguous ({count} matches); "
                             "add surrounding context or set replace_all")

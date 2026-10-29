@@ -48,7 +48,7 @@ something, a `--json` run stops and reports it:
 | `status` | Exit code | Meaning | Continue with |
 | --- | --- | --- | --- |
 | `done` | 0 | Task finished; the session is deleted | — |
-| `error` | 1 | API/config error or repeated invalid replies; session kept | `--resume "instruction"` |
+| `error` | 1 | API/config error, repeated invalid replies, or `edit_file` failed 3 times in a row on one file; session kept | `--resume "instruction"` |
 | `question` | 3 | The model asks something (`message`) | `--resume "answer"` |
 | `blocked` | 4 | A dangerous command needs approval (`blocked_command`, `reason`) | `--resume --approve-blocked`, or `--resume "do X instead"` |
 | `step_limit` | 5 | `--max-steps` reached | `--resume` |

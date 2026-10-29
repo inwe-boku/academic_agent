@@ -75,6 +75,33 @@ def test_edit_missing_text(executor, project):
         executor.prepare(Action("edit_file", {"path": "a.py", "old": "y", "new": "z"}))
 
 
+def test_edit_missing_text_shows_closest_match_and_needs_reread(executor, project):
+    lines = [f"line{i}\n" for i in range(1, 21)]
+    lines[9] = "from datetime import date, timedelta\n"
+    (project / "a.py").write_text("".join(lines))
+    run(executor, "read_file", path="a.py")
+    edit = Action("edit_file", {"path": "a.py", "new": "x",
+                                "old": "from datetime import date, timedelta, datetime"})
+    with pytest.raises(ToolError) as exc:
+        executor.prepare(edit)
+    message = str(exc.value)
+    assert "read it again" in message
+    assert "   10  from datetime import date, timedelta" in message
+    assert "    7  line7" in message and "   13  line13" in message
+    assert "line6" not in message and "line14" not in message
+    with pytest.raises(ToolError, match="has not been read"):
+        executor.prepare(edit)
+
+
+def test_edit_missing_text_without_similar_line(executor, project):
+    (project / "a.py").write_text("x = 1\n")
+    run(executor, "read_file", path="a.py")
+    with pytest.raises(ToolError) as exc:
+        executor.prepare(Action("edit_file", {"path": "a.py", "old": "completely different",
+                                              "new": "z"}))
+    assert "Closest match" not in str(exc.value)
+
+
 def test_edit_ambiguous(executor, project):
     (project / "a.py").write_text("x = 1\nx = 1\n")
     run(executor, "read_file", path="a.py")
