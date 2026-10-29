@@ -75,6 +75,10 @@ def test_retry_delays_and_retry_after():
     ])
     assert api.chat([]).content == "done"
     assert sleeps == [2, 5, 7]
+    assert (api.last_retries, api.last_retry_wait) == (3, 14)
+    api.http.responses.append(ok())
+    api.chat([])
+    assert (api.last_retries, api.last_retry_wait) == (0, 0)
 
 
 def test_retries_exhausted():
@@ -101,9 +105,47 @@ def test_config_validation():
 def test_model_info_cost():
     info = ModelInfo.from_api({
         "modelName": "gpt-5", "contextWindow": 400000,
-        "costs": [{"costType": "input_tokens", "cost": 0.000001},
-                  {"costType": "output_tokens", "cost": 0.00001}],
+        "costs": [{"costType": "input_tokens", "cost": 0.001},
+                  {"costType": "output_tokens", "cost": 0.01}],
     })
     assert info.context_window == 400000
     assert info.cost(1000, 100) == pytest.approx(0.002)
     assert ModelInfo("m").cost(1, 1) is None
+    # /models reports prices per 1,000 tokens (gpt-5: 0.00138 in, 0.011 out)
+    gpt5 = ModelInfo.from_api({"modelName": "gpt-5", "costs": [
+        {"costType": "input_tokens", "cost": 0.00138},
+        {"costType": "output_tokens", "cost": 0.011}]})
+    assert gpt5.cost(73_459, 4_069) == pytest.approx(0.1461, abs=1e-4)
+
+
+def test_reasoning_effort_sent_to_reasoning_models_only():
+    cfg = Config("https://h", "id", "secret", "gpt-5", reasoning_effort="low")
+    http = FakeHttp([ok()])
+    ApiClient(cfg, http=http).chat([])
+    assert http.payloads[0]["reasoningEffort"] == "low"
+    cfg.model = "gpt-4o"
+    http = FakeHttp([ok()])
+    ApiClient(cfg, http=http).chat([])
+    assert "reasoningEffort" not in http.payloads[0]
+
+
+def test_reasoning_effort_rejected_falls_back():
+    cfg = Config("https://h", "id", "secret", "o3", reasoning_effort="high")
+    http = FakeHttp([Response(400, {"error": "unsupported"}), ok()])
+    api = ApiClient(cfg, http=http)
+    api.chat([])
+    assert "reasoningEffort" in http.payloads[0]
+    assert "reasoningEffort" not in http.payloads[1]
+    assert api.reasoning_effort == ""
+
+
+def test_reasoning_effort_from_env_and_validated():
+    env = {"ACADEMIC_AI_BASE_URL": "h", "ACADEMIC_AI_CLIENT_ID": "i",
+           "ACADEMIC_AI_CLIENT_SECRET": "s", "ACADEMIC_AI_MODEL": "gpt-5",
+           "ACADEMIC_AI_REASONING_EFFORT": " Low "}
+    cfg = Config.from_env(env)
+    cfg.validate()
+    assert cfg.reasoning_effort == "low"
+    env["ACADEMIC_AI_REASONING_EFFORT"] = "fast"
+    with pytest.raises(ConfigError, match="REASONING_EFFORT"):
+        Config.from_env(env).validate()

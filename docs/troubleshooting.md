@@ -63,6 +63,27 @@ curl -s "$ACADEMIC_AI_BASE_URL/api/v1/llm/models" \
 | A command asks for approval despite `--auto-approve` | It was flagged as dangerous (shown above the prompt). This is intended; see [Security](security.md#dangerous-commands). |
 | `/undo` says `cannot undo` for a file | The file had uncommitted changes when the agent started, or is not tracked by git. |
 
+## Slow sessions
+
+The spinner shows how long the current model request or shell command has
+been running. When the task finishes (and with `/cost` at any prompt), a
+`Time:` line shows where the session's time went:
+
+```
+Time: 6 steps · API 48.2s (7 calls, 1 retries, 2.0s retry wait) · tools 1.3s (5 actions) · session saves 0.01s · 1 invalid replies
+```
+
+- **API** is the time spent waiting for Academic AI, retry waits included.
+  If it dominates, the model is slow: reasoning models (`gpt-5`, o-series)
+  often take much longer per turn. Try a faster model for small tasks.
+- **retry wait** is the backoff after transient errors (HTTP 429/5xx,
+  network problems). A large value points to API overload or rate limits.
+- **invalid replies** and **compactions** each cost one extra model request.
+- **tools** is time spent in file tools and shell commands.
+
+The per-step numbers are kept in the session file (`timings`); they contain
+no prompt or output text.
+
 ## Still stuck?
 
 Run `academic --list-models`. If that works, authentication and the host are

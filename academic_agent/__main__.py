@@ -37,8 +37,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _print_retry(exc, delay, attempt, total) -> None:
-    print(f"Transient API error ({exc}); retrying in {delay:g}s "
-          f"({attempt}/{total})...", file=sys.stderr)
+    ui.clear_line()  # the spinner may be drawing on this line
+    ui.warn(f"Transient API error ({exc}); retrying in {delay:g}s "
+            f"({attempt}/{total})...")
 
 
 def _list_sessions() -> int:

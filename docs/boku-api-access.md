@@ -43,8 +43,8 @@ after logging in. This page lists what you need and where it comes from.
 ## Costs
 
 API usage is **billed independently** of the normal Academic AI user account.
-Prices are per token and differ per model; `GET /api/v1/llm/models` returns the
-per-token `input_tokens` and `output_tokens` costs. Because the API is stateless,
+Prices differ per model; `GET /api/v1/llm/models` returns the
+`input_tokens` and `output_tokens` costs per 1,000 tokens. Because the API is stateless,
 the agent resends the full conversation on each step, so input tokens grow with
 every step. For long tasks prefer a cheaper model, and check the cost
 endpoint or ask your administrator for the usage report.

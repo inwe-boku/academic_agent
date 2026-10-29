@@ -186,8 +186,10 @@ class Executor:
         cmd += ["-e", pattern]
         if rel != ".":
             cmd += ["--", rel]
-        proc = subprocess.run(cmd, cwd=self.root, capture_output=True,
-                              text=True, errors="replace")
+        # rg searches stdin instead of the directory when stdin is not a
+        # terminal; with an open pipe (non-interactive callers) it hangs.
+        proc = subprocess.run(cmd, cwd=self.root, stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True, errors="replace")
         if proc.returncode == 2 and not proc.stdout:
             raise ToolError(proc.stderr.strip() or "search failed")
         return proc.stdout.rstrip("\n")
