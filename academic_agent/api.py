@@ -80,7 +80,7 @@ class ChatResult:
 class ModelInfo:
     name: str
     context_window: int | None = None
-    input_cost: float | None = None   # USD per token
+    input_cost: float | None = None   # per 1,000 tokens, as /models reports
     output_cost: float | None = None
 
     @classmethod
@@ -97,7 +97,8 @@ class ModelInfo:
     def cost(self, prompt_tokens: int, completion_tokens: int) -> float | None:
         if self.input_cost is None or self.output_cost is None:
             return None
-        return prompt_tokens * self.input_cost + completion_tokens * self.output_cost
+        return (prompt_tokens * self.input_cost
+                + completion_tokens * self.output_cost) / 1000
 
 
 def is_reasoning_model(model: str) -> bool:

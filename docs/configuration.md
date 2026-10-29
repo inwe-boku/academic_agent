@@ -54,7 +54,7 @@ output tokens. Considerations:
   `ACADEMIC_AI_REASONING_EFFORT=low`; its effect varied a lot between runs.
   The `Time:` line on the final screen shows where a session's time went (see
   [Troubleshooting](troubleshooting.md#slow-sessions)).
-- **Cost:** per-token prices come from the models endpoint and drive the cost
+- **Cost:** prices (per 1,000 tokens) come from the models endpoint and drive the cost
   estimate; smaller models (`*-mini`, `*-nano`, `*-flash`) are cheaper for
   simple tasks.
 

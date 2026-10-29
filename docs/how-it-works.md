@@ -81,7 +81,7 @@ actions after a failure or rejection as `SKIPPED`.
   message (so user and assistant messages keep alternating), shown to you and
   stored in the session. If the summary call fails, old tool results are
   replaced by stubs such as `[read_file a.py: 212 lines, omitted]`.
-- **Cost:** the per-token prices from `/models` give the estimate shown after
+- **Cost:** the prices from `/models` (per 1,000 tokens) give the estimate shown after
   each turn.
 
 ## Stateless API

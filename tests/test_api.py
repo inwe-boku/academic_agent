@@ -105,12 +105,17 @@ def test_config_validation():
 def test_model_info_cost():
     info = ModelInfo.from_api({
         "modelName": "gpt-5", "contextWindow": 400000,
-        "costs": [{"costType": "input_tokens", "cost": 0.000001},
-                  {"costType": "output_tokens", "cost": 0.00001}],
+        "costs": [{"costType": "input_tokens", "cost": 0.001},
+                  {"costType": "output_tokens", "cost": 0.01}],
     })
     assert info.context_window == 400000
     assert info.cost(1000, 100) == pytest.approx(0.002)
     assert ModelInfo("m").cost(1, 1) is None
+    # /models reports prices per 1,000 tokens (gpt-5: 0.00138 in, 0.011 out)
+    gpt5 = ModelInfo.from_api({"modelName": "gpt-5", "costs": [
+        {"costType": "input_tokens", "cost": 0.00138},
+        {"costType": "output_tokens", "cost": 0.011}]})
+    assert gpt5.cost(73_459, 4_069) == pytest.approx(0.1461, abs=1e-4)
 
 
 def test_reasoning_effort_sent_to_reasoning_models_only():

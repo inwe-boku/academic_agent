@@ -97,3 +97,33 @@ to make sessions look faster.
 - The spinner shows elapsed time, and retries stay visible.
 - The full test suite passes, and the public CLI and protocol are unchanged
   apart from the new optional timing output.
+
+## Results (2026-10-29)
+
+Measured with the timing record on a 3-file fixture repo (small task) and on
+a clone of this repository (read-only "explain the retry path" task):
+
+| Model / task | Wall time | API time | Local overhead |
+| --- | --- | --- | --- |
+| gpt-4o, small (3 runs) | 2.8–3.9 s | 2.4–3.5 s | ~10 ms |
+| gpt-5, small (3 runs) | 7.9–14.1 s | 7.4–13.7 s | ~10 ms |
+| gpt-5, realistic (2 runs) | 44–59 s | 43–59 s | ~20 ms |
+| gpt-5 + `reasoningEffort=low`, realistic (2 runs) | 25–43 s | 24–42 s | ~10 ms |
+
+- **Dominant bottleneck: model response time.** It grows with output and
+  reasoning tokens (one gpt-5 turn with 1,713 output tokens took 20 s) and
+  varies a lot between identical runs. Prompt size matters much less. No
+  retries happened in these runs.
+- Local work (session saves, file tools, compaction) is negligible.
+- **Bug found:** `search` passed the agent's stdin to ripgrep. With stdin as
+  an open pipe (non-interactive callers, issue #5), ripgrep waited forever,
+  and with redirected input it searched stdin. Fixed with
+  `stdin=DEVNULL`, plus a regression test.
+- **Bug found:** `/models` reports prices per 1,000 tokens, but the cost
+  estimate treated them as per token (1000× too high). Fixed.
+- **Changes:** per-step timing record and `Time:` summary, elapsed time in
+  spinners, retry warnings that no longer collide with the spinner, and
+  optional `ACADEMIC_AI_REASONING_EFFORT`.
+- **Not reproduced:** an intermittent stall. If it happens again, the
+  `Time:` line and the session's `timings` show whether it was API time
+  (with or without retries) or something local.

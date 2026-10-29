@@ -74,7 +74,7 @@ def test_batch_runs_in_order_and_reports(project, inputs):
     assert "[2] edit_file a.txt: OK" in result_msg
     assert sessions.load(project) is None  # removed after accepting done
     assert agent.session.tokens_in == 200
-    assert agent.session.cost_usd == pytest.approx(2 * (100e-6 + 10e-5))
+    assert agent.session.cost_usd == pytest.approx(2 * (100e-6 + 10e-5) / 1000)
 
 
 def test_rejection_with_comment_stops_batch(project, inputs):
