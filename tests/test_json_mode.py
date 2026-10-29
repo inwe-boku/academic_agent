@@ -82,6 +82,18 @@ def test_edit_after_resume_needs_no_reread(cli, project):
     assert "OK" in cli.api.calls[-1][-1]["content"]
 
 
+def test_repeated_failed_edits_stop_the_run(cli, project):
+    (project / "a.txt").write_text("one\n")
+    retry = actions({"tool": "read_file", "path": "a.txt"},
+                    {"tool": "edit_file", "path": "a.txt", "old": "uno", "new": "two"})
+    code, result, _ = cli("--auto-approve", "--json", "task",
+                          replies=[retry, retry, retry])
+    assert (code, result["status"]) == (1, "error")
+    assert "failed 3 times in a row on a.txt" in result["message"]
+    assert result["steps"] == 3 and result["session_kept"] is True
+    assert sessions.load(project).messages[-1]["role"] == "user"
+
+
 def test_dangerous_command_blocked_then_approved_once(cli, project):
     (project / "build").mkdir()
     rm = {"tool": "run", "command": "rm -rf build"}

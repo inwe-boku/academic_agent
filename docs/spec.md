@@ -47,7 +47,7 @@ The model answers with **one JSON object** per turn. The agent requests
 | `read_file` | `path`, optional `offset`, `limit` (lines) | Return numbered lines | read |
 | `list_dir` | `path`, optional `depth` (default 2) | Return tree, honours `.gitignore` | read |
 | `search` | `pattern`, optional `path`, `glob` | Regex search (ripgrep if present, else Python) | read |
-| `edit_file` | `path`, `old`, `new`, optional `replace_all` | Exact string replace; fails if `old` is missing or ambiguous | write |
+| `edit_file` | `path`, `old`, `new`, optional `replace_all` | Exact string replace; fails if `old` is missing or ambiguous. A missing `old` shows the closest matching lines and requires a new `read_file` | write |
 | `write_file` | `path`, `content` | Create a file, or overwrite one already read this session | write |
 | `move_file` | `from`, `to` | Rename within the project | write |
 | `delete_file` | `path` | Delete one file (never directories) | write |

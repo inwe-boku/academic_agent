@@ -105,6 +105,35 @@ def test_failure_stops_batch_without_prompt(project, inputs):
     assert "[2] read_file a.txt: SKIPPED" in msg
 
 
+def test_repeated_failed_edits_ask_the_user(project, inputs):
+    (project / "a.txt").write_text("hello\n")
+    read = {"tool": "read_file", "path": "a.txt"}
+    bad = {"tool": "edit_file", "path": "a.txt", "old": "hallo", "new": "bye"}
+    agent, api = make_agent(project, [
+        actions(read, bad), actions(read, bad), actions(read, bad), DONE,
+    ], mode=AUTO)
+    inputs += ["Use write_file.", "y"]  # instruction after the 3rd failure, accept done
+    assert agent.run() == 0
+    report = api.calls[3][-1]["content"]
+    assert "Closest match in the file:\n    1  hello" in report
+    assert report.endswith("User message: Use write_file.")
+    assert "User message" not in api.calls[2][-1]["content"]
+
+
+def test_successful_edit_resets_failure_count(project, inputs):
+    (project / "a.txt").write_text("hello\n")
+    read = {"tool": "read_file", "path": "a.txt"}
+    bad = {"tool": "edit_file", "path": "a.txt", "old": "hallo", "new": "x"}
+    good = {"tool": "edit_file", "path": "a.txt", "old": "hello", "new": "hello!"}
+    agent, api = make_agent(project, [
+        actions(read, bad), actions(read, bad), actions(read, good),
+        actions(read, bad), actions(read, bad), DONE,
+    ], mode=AUTO)
+    inputs += ["y"]  # accept done; no instruction is asked for
+    assert agent.run() == 0
+    assert (project / "a.txt").read_text() == "hello!\n"
+
+
 def test_auto_approve_still_asks_for_dangerous(project, inputs):
     (project / "d").mkdir()
     agent, api = make_agent(project, [

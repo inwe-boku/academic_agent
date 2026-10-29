@@ -15,6 +15,7 @@ from .tools import Executor, ToolError, ToolResult, describe
 
 MAX_STEPS = 100
 MAX_INVALID_RETRIES = 2
+MAX_EDIT_FAILURES = 3  # failed edit_file calls in a row on one path
 MAX_TIMINGS = 500  # per-step timing entries kept in the session
 SLASH_COMMANDS = ("/diff", "/undo", "/cost", "/quit")
 
@@ -62,6 +63,7 @@ class Agent:
         self.interactive = interactive
         self.result: dict | None = None
         self.steps_total = 0
+        self.edit_failures: dict[str, int] = {}
         self.clock = clock
         self.timing: dict | None = None  # entry of the current step
 
@@ -272,7 +274,7 @@ class Agent:
         total = len(reply.actions)
         results = []
         stopped = rejected = interrupted = False
-        blocked = None
+        blocked = stuck = None
 
         for i, action in enumerate(reply.actions, 1):
             header = f"[{i}] {action.tool} {describe(action)}"
@@ -286,6 +288,7 @@ class Agent:
                 ui.error(f"  ✗ {exc}")
                 results.append(f"{header}: FAILED\n{exc}")
                 stopped = True
+                stuck = self._count_edit(action, ok=False)
                 continue
 
             ui.show_action(i, total, action.tool, prepared.target, prepared.dangerous)
@@ -330,6 +333,7 @@ class Agent:
             results.append(f"{header}: {status}" + (f"\n{body}" if body else ""))
             if not result.ok:
                 stopped = True
+            stuck = self._count_edit(action, result.ok)
             interrupted = interrupted or result.interrupted
 
         content = "\n\n".join(results)
@@ -341,6 +345,15 @@ class Agent:
                 "blocked", "An action needs the user's approval. Approve the "
                 "command with --resume --approve-blocked, or resume with an "
                 "instruction.", **blocked)
+        if stuck:
+            text = f"edit_file failed {MAX_EDIT_FAILURES} times in a row on {stuck}."
+            if not self.interactive:
+                raise StopForCaller("error", f"{text} Resume with an instruction.")
+            instruction = self.ask_user(
+                f"{text} Instruction for the agent (empty to stop): ")
+            if not instruction.strip():
+                raise ui.Quit()
+            self.messages[-1]["content"] += f"\n\nUser message: {instruction}"
         if interrupted:
             if not self.interactive:
                 raise StopForCaller("error", "A command was interrupted. Resume "
@@ -350,6 +363,20 @@ class Agent:
             if not instruction.strip():
                 raise ui.Quit()
             self.messages[-1]["content"] += f"\n\nUser message: {instruction}"
+
+    def _count_edit(self, action, ok: bool) -> str | None:
+        """Return the path once edit_file has failed on it too often in a row."""
+        if action.tool != "edit_file":
+            return None
+        path = action.args["path"]
+        if ok:
+            self.edit_failures.pop(path, None)
+            return None
+        self.edit_failures[path] = self.edit_failures.get(path, 0) + 1
+        if self.edit_failures[path] < MAX_EDIT_FAILURES:
+            return None
+        del self.edit_failures[path]
+        return path
 
     def _caller_approved(self, action, prepared) -> bool:
         """--approve-blocked: run the one approved command once, unchanged."""
