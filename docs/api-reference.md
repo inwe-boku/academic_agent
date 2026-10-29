@@ -101,6 +101,39 @@ reasoning models also get `reasoningEffort` (again dropped after an HTTP
 | `stop` | Mistral only | |
 | `tailoredAiId` | | Enables RAG with a Tailored AI (requires `USE_API_TAILORED_AI`) |
 
+## JSON result of `academic --json`
+
+Not part of the Academic AI API: this is the agent's own output format for
+callers (see [Usage](usage.md#running-from-other-programs)). It is one object
+on stdout:
+
+```json
+{
+  "version": 1,
+  "status": "blocked",
+  "message": "An action needs the user's approval. ...",
+  "blocked_action": "[2] run rm -rf build",
+  "blocked_command": "rm -rf build",
+  "reason": "rm -rf",
+  "changed_files": ["src/a.py"],
+  "run_log": [{"command": "pytest -q", "exit_code": 0}],
+  "steps": 3,
+  "tokens_in": 5120,
+  "tokens_out": 410,
+  "timings": [{"api_s": 4.48, "calls": 1, "retries": 0, "retry_wait_s": 0.0,
+               "tools_s": 0.01, "tools": 2, "save_s": 0.001,
+               "prompt_tokens": 1291, "completion_tokens": 332}],
+  "session_kept": true
+}
+```
+
+`status` is one of `done`, `error`, `question`, `blocked`, `step_limit`
+and `interrupted`. `blocked_*` and `reason` appear only for `blocked`, and
+`blocked_command` only when the blocked action is a `run`. `message` is
+redacted like saved sessions. `steps` counts the steps of this invocation;
+`timings` covers the whole session, one entry per step (see
+[Troubleshooting](troubleshooting.md#slow-sessions)). New fields may be added within version 1.
+
 ## Endpoints not used
 
 | Cluster | Prefix | Permission |

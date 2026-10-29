@@ -1,6 +1,9 @@
 """Command-line interface."""
 
 import argparse
+import contextlib
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -8,8 +11,9 @@ from . import gitutil, ui
 from . import session as sessions
 from .api import ApiClient, Config, ConfigError
 from .context import DEFAULT_CONTEXT_WINDOW, build_initial_prompt
-from .loop import MAX_STEPS, Agent
-from .policy import ACCEPT_EDITS, AUTO, DEFAULT, Approver, secret_env_values
+from .loop import MAX_STEPS, RESULT_VERSION, Agent
+from .policy import (ACCEPT_EDITS, AUTO, DEFAULT, NESTED_ENV, Approver,
+                     secret_env_values)
 from .session import Session
 
 
@@ -27,6 +31,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Continue the last session of this directory")
     parser.add_argument("--max-steps", type=int, default=MAX_STEPS,
                         help=f"Turns per task before asking (at most {MAX_STEPS})")
+    parser.add_argument("--json", action="store_true",
+                        help="Non-interactive run for programs (needs --auto-approve): "
+                             "never reads stdin, human output goes to stderr, one "
+                             "JSON result on stdout; see docs/usage.md")
+    parser.add_argument("--approve-blocked", action="store_true",
+                        help="With --resume: approve the dangerous command that "
+                             "stopped the last --json run (exactly that command, once)")
     parser.add_argument("--list-models", action="store_true",
                         help="Print the available models and exit")
     parser.add_argument("--sessions", action="store_true",
@@ -55,7 +66,31 @@ def _list_sessions() -> int:
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not args.json:
+        return _main(args, parser, {})
+
+    # stdout carries exactly one JSON document; everything else goes to stderr.
+    ui.last_error = ""
+    holder: dict = {}
+    with contextlib.redirect_stdout(sys.stderr):
+        try:
+            code = _main(args, parser, holder)
+        except SystemExit as exc:  # argparse errors
+            code = exc.code if isinstance(exc.code, int) else 2
+    agent = holder.get("agent")
+    result = agent.result if agent is not None else None
+    if result is None:
+        result = {"version": RESULT_VERSION, "status": "error",
+                  "message": ui.last_error or f"exited with code {code}; see stderr"}
+    print(json.dumps(result, ensure_ascii=False))
+    return code
+
+
+def _main(args, parser, holder: dict) -> int:
     root = Path.cwd().resolve()
+    if os.environ.get(NESTED_ENV) and not (args.sessions or args.list_models):
+        ui.error("academic cannot be started from a command that academic runs.")
+        return 2
 
     if args.sessions:
         return _list_sessions()
@@ -84,7 +119,13 @@ def main(argv=None) -> int:
     if not 1 <= args.max_steps <= MAX_STEPS:
         parser.error(f"--max-steps must be between 1 and {MAX_STEPS}")
     mode = AUTO if args.auto_approve else ACCEPT_EDITS if args.accept_edits else DEFAULT
-    interactive = sys.stdin.isatty()
+    if args.json and mode != AUTO:
+        ui.error("--json needs --auto-approve.")
+        return 2
+    if args.approve_blocked and not args.resume:
+        ui.error("--approve-blocked needs --resume.")
+        return 2
+    interactive = sys.stdin.isatty() and not args.json
     if not interactive and mode != AUTO:
         ui.error("stdin is not a terminal; non-interactive runs need --auto-approve.")
         return 2
@@ -96,6 +137,15 @@ def main(argv=None) -> int:
             ui.error("No saved session found for this directory.")
             return 1
         extra = " ".join(args.task)
+        blocked, session.blocked_command = session.blocked_command, None
+        if args.approve_blocked:
+            if not blocked:
+                ui.error("The saved session has no blocked command to approve.")
+                return 1
+            session.approved_command = blocked
+            approval = ("The user approved the blocked command. Run it again "
+                        f"exactly as before:\n{blocked}")
+            extra = approval + (f"\n\n{extra}" if extra else "")
         if session.messages[-1]["role"] == "assistant":
             session.messages.append(
                 {"role": "user", "content": extra or "Continue with the task."})
@@ -140,7 +190,9 @@ def main(argv=None) -> int:
 
     agent = Agent(root=root, api=api, session=session, approver=Approver(mode),
                   model_info=model_info, git_enabled=git,
-                  max_steps=args.max_steps, secrets=secret_env_values())
+                  max_steps=args.max_steps, secrets=secret_env_values(),
+                  interactive=interactive)
+    holder["agent"] = agent
     return agent.run()
 
 

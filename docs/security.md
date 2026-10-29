@@ -100,6 +100,16 @@ Safeguards:
   untrusted checkout can steer the model, so review it before you run the
   agent there.
 
+## Non-interactive runs (`--json`)
+
+`--json` does not widen any approvals. It requires `--auto-approve`, and
+dangerous commands stop the run with status `blocked` instead of running.
+`--resume --approve-blocked` approves exactly the blocked command string,
+once. A different or modified command is blocked again. Caller-supplied text
+(the task, answers) reaches the model as user messages and cannot change the
+system prompt, the path confinement or the dangerous-command check. Commands
+run by the agent cannot start `academic` again (`ACADEMIC_AGENT_NESTED`).
+
 ## Saved sessions
 
 To allow `--resume`, the conversation is stored unencrypted in

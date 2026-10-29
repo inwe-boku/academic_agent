@@ -131,7 +131,12 @@ def warn(text: str) -> None:
     print(color(f"⚠ {text}", BOLD, FG_YELLOW), file=sys.stderr)
 
 
+last_error = ""  # for the --json result when the run fails before it starts
+
+
 def error(text: str) -> None:
+    global last_error
+    last_error = text
     print(color(text, FG_RED), file=sys.stderr)
 
 
