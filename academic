@@ -12,7 +12,11 @@ if [ -f "$CONFIG" ]; then
     echo "Warning: $CONFIG is readable by group or others (mode $perms)." >&2
     echo "         Fix with: chmod 600 \"$CONFIG\"" >&2
   fi
+  # Variables set by the caller (e.g. ACADEMIC_AI_MODEL=... academic) win
+  # over the config file.
+  caller_env="$(export -p | grep -E '^(declare -x|export) ACADEMIC_AI_[A-Z_]*=' || true)"
   set -a; . "$CONFIG"; set +a
+  eval "$caller_env"
 fi
 
 PYTHON="$DIR/.venv/bin/python"

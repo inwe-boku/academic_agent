@@ -15,6 +15,10 @@ launcher warns if the file is readable by group or others:
 chmod 600 ~/.config/academic-agent/env
 ```
 
+`ACADEMIC_AI_*` variables that are already set in your environment take
+precedence over the file, so `ACADEMIC_AI_MODEL=gpt-4o academic "..."` uses
+`gpt-4o` for one run.
+
 If you call `academic_agent.py` or `python -m academic_agent` directly instead of
 using the launcher, the file is **not** read; export the variables yourself.
 
