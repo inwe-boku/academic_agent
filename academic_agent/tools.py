@@ -13,7 +13,8 @@ from typing import Callable
 
 from . import gitutil
 from .context import tree_listing
-from .policy import TIERS, Policy, PolicyError, dangerous_reason, is_denied_rel, scrubbed_env
+from .policy import (NESTED_ENV, TIERS, Policy, PolicyError, dangerous_reason,
+                     is_denied_rel, scrubbed_env)
 from .protocol import Action
 from .session import Session
 
@@ -335,7 +336,8 @@ class Executor:
 
     def run_command(self, command: str, timeout: int) -> ToolResult:
         proc = subprocess.Popen(
-            command, shell=True, cwd=self.root, env=scrubbed_env(),
+            command, shell=True, cwd=self.root,
+            env=dict(scrubbed_env(), **{NESTED_ENV: "1"}),
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, start_new_session=True,
             text=True, errors="replace",

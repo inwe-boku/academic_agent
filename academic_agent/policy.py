@@ -11,6 +11,9 @@ SECRET_NAME_PATTERNS = (".env*", "*.pem", "id_*")
 # Environment variables removed before running shell commands.
 SECRET_ENV_PATTERNS = ("ACADEMIC_AI_*", "*TOKEN*", "*SECRET*", "*KEY*", "*PASSWORD*")
 
+# Set for commands the agent runs, so that they cannot start the agent again.
+NESTED_ENV = "ACADEMIC_AGENT_NESTED"
+
 TIERS = {
     "read_file": "read",
     "list_dir": "read",

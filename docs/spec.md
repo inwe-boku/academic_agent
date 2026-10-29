@@ -105,6 +105,10 @@ against the schema above. On failure the agent sends a corrective message
 - Prompt: `[y]es / [n]o / [a]lways this tool for the session / or type a
   comment to reject with feedback`. No "always" for dangerous commands.
 - Non-interactive stdin (no TTY) without `--auto-approve` aborts with an error.
+- `--json` (requires `--auto-approve`) never prompts: questions, dangerous
+  commands, the step limit and errors end the run with a JSON result and a
+  status-specific exit code (see docs/usage.md). `--resume --approve-blocked`
+  approves exactly the blocked command once.
 
 ## 6. Git-based undo
 

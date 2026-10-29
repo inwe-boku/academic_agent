@@ -50,6 +50,20 @@ that.
 **Extend the dangerous-command check.** Edit `_segment_dangerous()` in
 `policy.py` and add positive and negative cases to `tests/test_policy.py`.
 
+## Testing with Claude Code
+
+`.claude/skills/test-academic-agent/SKILL.md` is a Claude Code skill that runs
+Academic Agent as a worker (`academic --auto-approve --json`) on scenario tasks
+in throwaway git repos. It checks statuses, exit codes, file changes and
+safety rules, and opens GitHub issues labelled `agent-found` for confirmed,
+new defects, without asking first. In Claude Code, start it with
+`/test-academic-agent` (or ask Claude to test the agent). It needs working
+credentials and `gh auth`, and the runs are billed. By default it is capped
+at 8 scenarios and 25 invocations.
+
+The offline tests for `--json` (`tests/test_json_mode.py`) need neither
+Claude Code nor credentials.
+
 ## Documentation
 
 ```bash
