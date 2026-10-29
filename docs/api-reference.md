@@ -84,7 +84,9 @@ is rejected with HTTP 400 (`role: Input should be 'user' or 'assistant'`).
 
 **Optional parameters.** The agent sends `responseFormat: {"type": "json_object"}`
 except for reasoning models (o-series, gpt-5 family); if the model rejects it
-with HTTP 400, it retries without. Other parameters can be added in
+with HTTP 400, it retries without. With `ACADEMIC_AI_REASONING_EFFORT` set,
+reasoning models also get `reasoningEffort` (again dropped after an HTTP
+400/422). Other parameters can be added in
 `ApiClient.chat()` (`academic_agent/api.py`):
 
 | Parameter | Applies to | Notes |

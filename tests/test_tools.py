@@ -1,4 +1,6 @@
 import os
+import shutil
+import signal
 import time
 
 import pytest
@@ -206,6 +208,26 @@ def test_search(executor, project, monkeypatch, use_rg):
     out = run(executor, "search", pattern="foo", glob="*.md").output
     assert out.strip() == "notes.md:1:foo bar"
     assert ".env" not in run(executor, "search", pattern="secret").output
+
+
+
+@pytest.mark.skipif(not shutil.which("rg"), reason="ripgrep not installed")
+def test_search_ignores_open_stdin_pipe(executor, project):
+    """Non-interactive callers may leave stdin as an open pipe; rg must search
+    the project, not wait on stdin."""
+    (project / "m.py").write_text("needle\n")
+    read_end, write_end = os.pipe()
+    saved = os.dup(0)
+    os.dup2(read_end, 0)
+    signal.alarm(10)  # fail instead of hanging if rg waits on stdin
+    try:
+        out = run(executor, "search", pattern="needle").output
+    finally:
+        signal.alarm(0)
+        os.dup2(saved, 0)
+        for fd in (saved, read_end, write_end):
+            os.close(fd)
+    assert out.strip() == "m.py:1:needle"
 
 
 # ---- run ------------------------------------------------------------------

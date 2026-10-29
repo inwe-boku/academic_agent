@@ -111,3 +111,36 @@ def test_model_info_cost():
     assert info.context_window == 400000
     assert info.cost(1000, 100) == pytest.approx(0.002)
     assert ModelInfo("m").cost(1, 1) is None
+
+
+def test_reasoning_effort_sent_to_reasoning_models_only():
+    cfg = Config("https://h", "id", "secret", "gpt-5", reasoning_effort="low")
+    http = FakeHttp([ok()])
+    ApiClient(cfg, http=http).chat([])
+    assert http.payloads[0]["reasoningEffort"] == "low"
+    cfg.model = "gpt-4o"
+    http = FakeHttp([ok()])
+    ApiClient(cfg, http=http).chat([])
+    assert "reasoningEffort" not in http.payloads[0]
+
+
+def test_reasoning_effort_rejected_falls_back():
+    cfg = Config("https://h", "id", "secret", "o3", reasoning_effort="high")
+    http = FakeHttp([Response(400, {"error": "unsupported"}), ok()])
+    api = ApiClient(cfg, http=http)
+    api.chat([])
+    assert "reasoningEffort" in http.payloads[0]
+    assert "reasoningEffort" not in http.payloads[1]
+    assert api.reasoning_effort == ""
+
+
+def test_reasoning_effort_from_env_and_validated():
+    env = {"ACADEMIC_AI_BASE_URL": "h", "ACADEMIC_AI_CLIENT_ID": "i",
+           "ACADEMIC_AI_CLIENT_SECRET": "s", "ACADEMIC_AI_MODEL": "gpt-5",
+           "ACADEMIC_AI_REASONING_EFFORT": " Low "}
+    cfg = Config.from_env(env)
+    cfg.validate()
+    assert cfg.reasoning_effort == "low"
+    env["ACADEMIC_AI_REASONING_EFFORT"] = "fast"
+    with pytest.raises(ConfigError, match="REASONING_EFFORT"):
+        Config.from_env(env).validate()
