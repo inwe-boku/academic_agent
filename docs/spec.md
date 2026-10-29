@@ -52,6 +52,7 @@ The model answers with **one JSON object** per turn. The agent requests
 | `move_file` | `from`, `to` | Rename within the project | write |
 | `delete_file` | `path` | Delete one file (never directories) | write |
 | `run` | `command`, optional `timeout` (default 120 s, max 600 s) | Shell command in project root | exec |
+| `remember` | `text` | Append one durable project fact to `.academic/MEMORY.md` (see §8.1) | memory |
 
 Rules:
 - Several actions per turn are allowed. They run in order; the batch stops at
@@ -90,6 +91,7 @@ against the schema above. On failure the agent sends a corrective message
 | write | ask, shows unified diff | auto | auto |
 | exec | ask | ask | auto |
 | exec, flagged dangerous | ask | ask | **ask** |
+| memory (`remember`) | auto, shown | auto, shown | auto, shown |
 
 - **Dangerous** is decided on the parsed command (via `shlex`, per pipeline
   segment): `rm` with `-r`/`-f`, `git reset --hard`, `git clean`,
@@ -105,6 +107,10 @@ against the schema above. On failure the agent sends a corrective message
 - Prompt: `[y]es / [n]o / [a]lways this tool for the session / or type a
   comment to reject with feedback`. No "always" for dangerous commands.
 - Non-interactive stdin (no TTY) without `--auto-approve` aborts with an error.
+- `--json` (requires `--auto-approve`) never prompts: questions, dangerous
+  commands, the step limit and errors end the run with a JSON result and a
+  status-specific exit code (see docs/usage.md). `--resume --approve-blocked`
+  approves exactly the blocked command once.
 
 ## 6. Git-based undo
 
@@ -158,6 +164,25 @@ against the schema above. On failure the agent sends a corrective message
 - Content: task, messages, touched files, start commit, token totals.
 - Removed on `done` only after the user accepts it; kept otherwise.
 - `--resume` unchanged; `--sessions` lists, `--clear` deletes.
+
+### 8.1 Project memory
+- `.academic/MEMORY.md` in the project root holds notes that the model saves
+  with `remember` at any time, without approval. Every save prints
+  `📝 Remembered: <text>`.
+- Each entry is one line, `- <text>  (<date>)`, at most 1,000 characters.
+  Duplicates (ignoring case and whitespace) are skipped. Notes that contain
+  redactable secrets are refused. Beyond 16,000 characters the oldest entries
+  are dropped. Writes are atomic. Both `.academic/MEMORY.md` and `.gitignore`
+  must resolve inside the project root.
+- In a git repository, the first save adds `.academic/` to the project's
+  `.gitignore` once, so memory stays local and is never committed by
+  accident.
+- New sessions get the notes in the first message, after the AGENTS.md
+  content (up to 8,000 characters; when truncated, the newest notes are
+  kept). The notes are labelled as reference only: AGENTS.md and the user
+  take precedence.
+- The file is plain markdown: edit or delete it by hand. To change existing
+  notes, the model uses `read_file`/`edit_file` with normal approval.
 
 ## 9. User interface
 

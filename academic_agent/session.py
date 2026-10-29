@@ -28,6 +28,12 @@ class Session:
     cost_usd: float | None = 0.0
     summaries: list = field(default_factory=list)
     run_log: list = field(default_factory=list)
+    # One entry per step: seconds and counts only, never message text.
+    timings: list = field(default_factory=list)
+    # --json runs: the dangerous command that stopped the run, and the one
+    # the caller approved with --resume --approve-blocked (used once).
+    blocked_command: str | None = None
+    approved_command: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "Session":

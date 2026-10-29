@@ -30,6 +30,7 @@ using the launcher, the file is **not** read; export the variables yourself.
 | `ACADEMIC_AI_CLIENT_ID` | yes | `00000000-0000-0000-0000-000000000000` | Client-ID of your API client, sent as `X-Client-ID`. |
 | `ACADEMIC_AI_CLIENT_SECRET` | yes | | Client-Secret, sent as `X-Client-Secret`. |
 | `ACADEMIC_AI_MODEL` | yes | `gpt-5` | Model identifier from `--list-models` (not needed for `--list-models` itself). |
+| `ACADEMIC_AI_REASONING_EFFORT` | no | `low` | `low`, `medium` or `high`; sent as `reasoningEffort` to reasoning models (o-series, gpt-5 family) only. Unset: the model's default. |
 
 If one is missing, the agent stops and names it. None of these variables is
 passed on to commands the agent runs. `NO_COLOR` disables colours; colours are
@@ -50,7 +51,14 @@ output tokens. Considerations:
   are a poor fit.
 - **Context window:** used for the history budget; the history is compacted at
   70 % of it.
-- **Cost:** per-token prices come from the models endpoint and drive the cost
+- **Speed:** time per turn is mostly the model's response time, and it grows
+  with the output tokens, including hidden reasoning tokens. In measurements
+  on a small task, `gpt-5` took 4–20 s per turn and `gpt-4o` 1–2 s. Use a
+  non-reasoning model for quick tasks, or try
+  `ACADEMIC_AI_REASONING_EFFORT=low`; its effect varied a lot between runs.
+  The `Time:` line on the final screen shows where a session's time went (see
+  [Troubleshooting](troubleshooting.md#slow-sessions)).
+- **Cost:** prices (per 1,000 tokens) come from the models endpoint and drive the cost
   estimate; smaller models (`*-mini`, `*-nano`, `*-flash`) are cheaper for
   simple tasks.
 

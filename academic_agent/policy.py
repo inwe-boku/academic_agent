@@ -11,6 +11,9 @@ SECRET_NAME_PATTERNS = (".env*", "*.pem", "id_*")
 # Environment variables removed before running shell commands.
 SECRET_ENV_PATTERNS = ("ACADEMIC_AI_*", "*TOKEN*", "*SECRET*", "*KEY*", "*PASSWORD*")
 
+# Set for commands the agent runs, so that they cannot start the agent again.
+NESTED_ENV = "ACADEMIC_AGENT_NESTED"
+
 TIERS = {
     "read_file": "read",
     "list_dir": "read",
@@ -20,6 +23,7 @@ TIERS = {
     "move_file": "write",
     "delete_file": "write",
     "run": "exec",
+    "remember": "memory",
 }
 
 # Approval modes
@@ -93,7 +97,7 @@ class Approver:
 
     def needs_prompt(self, tool: str, dangerous: bool = False) -> bool:
         tier = TIERS[tool]
-        if tier == "read":
+        if tier in ("read", "memory"):
             return False
         if tier == "exec" and dangerous:
             return True

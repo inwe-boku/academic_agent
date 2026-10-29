@@ -4,6 +4,7 @@
 
 ```text
 academic [--accept-edits | --auto-approve] [--max-steps N] [--resume] [task ...]
+academic --auto-approve --json [--resume [--approve-blocked]] [task ...]
 academic --list-models | --sessions | --clear
 ```
 
@@ -14,6 +15,8 @@ academic --list-models | --sessions | --clear
 | `--auto-approve` | Apply file changes and run commands without asking. Commands flagged as dangerous **still ask**. See [Security](security.md). |
 | `--max-steps N` | Ask before continuing after N turns (default and maximum: 100). |
 | `--resume` | Continue the last session of the current directory. See [Resuming a session](#resuming-a-session). |
+| `--json` | Non-interactive run for programs: see [Running from other programs](#running-from-other-programs). Needs `--auto-approve`. |
+| `--approve-blocked` | With `--resume`: approve the dangerous command that stopped the last `--json` run, exactly that command, once. |
 | `--list-models` | Print the models available to your API client and exit. |
 | `--sessions` | List all saved sessions and exit. |
 | `--clear` | Delete the saved session of the current directory and exit. |
@@ -34,6 +37,42 @@ ACADEMIC_AI_MODEL=claude-opus-4-8 academic "Review setup.py for packaging mistak
 
 stdin must be a terminal unless you pass `--auto-approve`; otherwise the agent
 stops with an error instead of hanging on a prompt.
+
+## Running from other programs
+
+`--json` is for callers such as scripts or Claude Code. The agent never reads
+stdin. All human-readable output goes to stderr, and stdout gets exactly one
+JSON object when the run ends. Wherever an interactive run would ask you
+something, a `--json` run stops and reports it:
+
+| `status` | Exit code | Meaning | Continue with |
+| --- | --- | --- | --- |
+| `done` | 0 | Task finished; the session is deleted | — |
+| `error` | 1 | API/config error or repeated invalid replies; session kept | `--resume "instruction"` |
+| `question` | 3 | The model asks something (`message`) | `--resume "answer"` |
+| `blocked` | 4 | A dangerous command needs approval (`blocked_command`, `reason`) | `--resume --approve-blocked`, or `--resume "do X instead"` |
+| `step_limit` | 5 | `--max-steps` reached | `--resume` |
+| `interrupted` | 130 | Ctrl-C / SIGINT | `--resume` |
+
+Usage errors (exit 2) also print a JSON object with `status: "error"`.
+
+```bash
+academic --auto-approve --json "Delete build/ and rebuild" > result.json
+# {"version": 1, "status": "blocked", "blocked_command": "rm -rf build", ...}
+academic --auto-approve --json --resume --approve-blocked
+```
+
+`--approve-blocked` approves only the exact command string that was blocked,
+and only once. Any other dangerous command is blocked again. The result
+also contains `changed_files`, `run_log`, `steps`, `tokens_in`, `tokens_out`,
+`timings` and `session_kept`; see the [API notes](api-reference.md#json-result-of-academic-json).
+
+Commands that the agent runs get `ACADEMIC_AGENT_NESTED=1`, and `academic`
+refuses to start when that variable is set, so the agent cannot start itself
+recursively.
+
+The Claude Code skill in `.claude/skills/test-academic-agent/` uses this mode
+to stress-test the agent; see [Development](development.md#testing-with-claude-code).
 
 ## What a session looks like
 
@@ -74,6 +113,7 @@ A dim status line after each turn shows tokens and the estimated cost.
 | `move_file` | Rename a file within the project | write |
 | `delete_file` | Delete one file | write |
 | `run` | Shell command in the project root (default 120 s, max 600 s) | exec |
+| `remember` | Save a project fact to the [project memory](#project-memory) | memory (never asks) |
 
 `edit_file` and `write_file` refuse to change a file that the model has not read
 in this session or that changed on disk since it was read.
@@ -208,10 +248,32 @@ working directory come later and therefore take precedence:
 Because `AGENTS.md` content steers the model, review files from untrusted
 repositories before running the agent there.
 
+## Project memory
+
+New sessions don't remember earlier ones. When the model learns something
+durable about your project, such as where things are, how to run the tests,
+conventions or pitfalls, it saves a one-line note with `remember`. This
+never asks for approval, but every save is shown:
+
+```
+[1/1] remember Tests: run `pytest -q` from the repo root
+  ✓ saved; added .academic/ to .gitignore
+  📝 Remembered: Tests: run `pytest -q` from the repo root
+```
+
+The notes go to `.academic/MEMORY.md` in the project root. Every new session
+gets them in its first message, after `AGENTS.md`, which still takes
+precedence. In a git repository, the first save adds `.academic/` to
+`.gitignore`, so notes stay on your machine.
+
+The file is plain markdown: edit it, remove wrong notes, or delete it to
+start over. Rules that should apply to everyone working on the project
+belong in `AGENTS.md`, not in memory.
+
 ## What the model sees about your project
 
-The first message contains the project root, your task, the `AGENTS.md` content
-and a file listing (3 levels, at most 300 entries, `.gitignore` honoured). The
+The first message contains the project root, your task, the `AGENTS.md` content,
+the [project memory](#project-memory) and a file listing (3 levels, at most 300 entries, `.gitignore` honoured). The
 model uses `list_dir`, `search` and `read_file` for more.
 
 File tools never access `.git/`, `.env*`, `*.pem` or `id_*`, and they reject

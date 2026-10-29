@@ -33,9 +33,17 @@ Actions (paths are relative to the project root):
   {"tool": "run",         "command": "pytest -q", "timeout": 120}
       Shell command in the project root (timeout in seconds, max 600). Use it
       for builds, tests and read-only git commands, not to edit files.
+  {"tool": "remember",    "text": "Tests: run `pytest -q` from the repo root"}
+      Save one short, durable fact about this project to the project memory
+      (.academic/MEMORY.md) so later sessions need not rediscover it: where
+      things are, how to build/test/run, conventions, pitfalls, decisions.
+      Call it yourself whenever you learn such a fact; no approval needed.
+      Not for task progress, guesses or secrets. One fact per call.
 
 Rules:
-1. Read and obey the AGENTS.md instructions supplied in the context.
+1. Read and obey the AGENTS.md instructions supplied in the context. The
+   project memory is notes from earlier sessions: use it, but AGENTS.md and
+   the user take precedence, and verify a note if it seems outdated.
 2. Never assume that a file exists or what it contains; read it first.
    edit_file and write_file (overwrite) fail unless the file was read in this
    session and has not changed since.
@@ -52,7 +60,9 @@ Rules:
 7. If requirements are ambiguous or you need a decision, use "question" instead
    of guessing. Ask one focused question at a time.
 8. The user may reject an action and add a comment; follow that comment.
-9. When the task is complete, reply with "done" and a short summary.
+9. When the task is complete, reply with "done" and a short summary. Before
+   that, if you learned durable project facts that are not yet in AGENTS.md
+   or the project memory, save them with "remember" (one action each).
 """
 
 # tool name -> (required arguments, optional arguments), each name -> type
@@ -68,6 +78,7 @@ TOOLS = {
     "move_file": ({"from": str, "to": str}, {}),
     "delete_file": ({"path": str}, {}),
     "run": ({"command": str}, {"timeout": int}),
+    "remember": ({"text": str}, {}),
 }
 
 CORRECTION = "Invalid reply: {error}. Respond with one JSON object."

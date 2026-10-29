@@ -11,9 +11,10 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Callable
 
-from . import gitutil
+from . import gitutil, memory
 from .context import tree_listing
-from .policy import TIERS, Policy, PolicyError, dangerous_reason, is_denied_rel, scrubbed_env
+from .policy import (NESTED_ENV, TIERS, Policy, PolicyError, dangerous_reason,
+                     is_denied_rel, scrubbed_env)
 from .protocol import Action
 from .session import Session
 
@@ -56,6 +57,9 @@ def describe(action: Action) -> str:
         return repr(a["pattern"]) + (f" in {a['path']}" if a.get("path") else "")
     if action.tool == "move_file":
         return f"{a['from']} -> {a['to']}"
+    if action.tool == "remember":
+        text = " ".join(a["text"].split())
+        return text[:80] + ("…" if len(text) > 80 else "")
     return a.get("path", ".")
 
 
@@ -88,10 +92,11 @@ def _read_text(path: Path, rel: str) -> str:
 
 
 class Executor:
-    def __init__(self, policy: Policy, session: Session):
+    def __init__(self, policy: Policy, session: Session, secrets=()):
         self.policy = policy
         self.root = policy.root
         self.session = session
+        self.secrets = list(secrets)
         self._read: dict[str, tuple[int, int]] = {}
 
     # -- bookkeeping --
@@ -182,8 +187,10 @@ class Executor:
         cmd += ["-e", pattern]
         if rel != ".":
             cmd += ["--", rel]
-        proc = subprocess.run(cmd, cwd=self.root, capture_output=True,
-                              text=True, errors="replace")
+        # rg searches stdin instead of the directory when stdin is not a
+        # terminal; with an open pipe (non-interactive callers) it hangs.
+        proc = subprocess.run(cmd, cwd=self.root, stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True, errors="replace")
         if proc.returncode == 2 and not proc.stdout:
             raise ToolError(proc.stderr.strip() or "search failed")
         return proc.stdout.rstrip("\n")
@@ -216,6 +223,26 @@ class Executor:
                     if len(matches) >= MAX_SEARCH_MATCHES:
                         return "\n".join(matches) + "\n[... match limit reached ...]"
         return "\n".join(matches)
+
+    # -- memory tier --
+
+    def _prep_remember(self, action):
+        text = action.args["text"]
+        # Both files must stay inside the project (e.g. no symlinked .academic).
+        self._resolve(memory.memory_rel())
+        self._resolve(".gitignore")
+
+        def execute():
+            try:
+                status = memory.append(self.root, text, self.secrets)
+            except memory.MemoryRejected as exc:
+                return ToolResult(False, str(exc), status="NOT SAVED")
+            if memory.ensure_gitignored(self.root):
+                self._touch(".gitignore", created=False)
+                status += f"; added {memory.MEMORY_DIR}/ to .gitignore"
+            return ToolResult(True, status=status)
+
+        return Prepared(action, "memory", describe(action), execute)
 
     # -- write tier --
 
@@ -335,7 +362,8 @@ class Executor:
 
     def run_command(self, command: str, timeout: int) -> ToolResult:
         proc = subprocess.Popen(
-            command, shell=True, cwd=self.root, env=scrubbed_env(),
+            command, shell=True, cwd=self.root,
+            env=dict(scrubbed_env(), **{NESTED_ENV: "1"}),
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, start_new_session=True,
             text=True, errors="replace",

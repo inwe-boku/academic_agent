@@ -12,6 +12,8 @@ def isolated_state(tmp_path, monkeypatch):
     """Sessions go to a temporary XDG_STATE_HOME; no colour codes."""
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     monkeypatch.setenv("NO_COLOR", "1")
+    # set when these tests run inside an agent's `run` command
+    monkeypatch.delenv("ACADEMIC_AGENT_NESTED", raising=False)
 
 
 @pytest.fixture
