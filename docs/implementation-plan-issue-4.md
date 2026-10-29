@@ -2,86 +2,98 @@
 
 ## Objective
 
-Investigate and resolve cases where Academic Agent sessions are unexpectedly slow, even when the requested task is small. Preserve correctness, retry behavior, safety prompts, session persistence, and user-visible progress reporting.
+Sessions are sometimes very slow, independent of how much work the prompt
+requires. Find out where the time goes using a small amount of timing data,
+then fix the measured bottleneck. Retries, safety prompts, session persistence
+and the reply protocol stay unchanged.
 
-## Current architecture relevant to latency
+## Approach: timing first, then fix
 
-- `academic_agent/loop.py` drives the turn loop and may perform up to 100 steps.
-- Before each model request, the agent calls `_ensure_budget()` and saves the session.
-- `academic_agent/api.py` performs HTTP requests with a 180-second request timeout and retries transient failures using delays of 2, 5, 15, and 30 seconds.
-- `academic_agent/context.py` manages history budgeting, compaction, summaries, stubbing, and truncation.
-- `academic_agent/session.py` serializes the complete session to JSON on every save.
-- `academic_agent/tools.py` executes shell and file operations, including commands with a maximum timeout of 600 seconds.
+No broad profiling campaign. Add one small, permanent timing record per turn,
+reproduce the slowness, and let the numbers decide which fix to make.
 
-## Phase 1: Establish reproducible evidence
+## Likely causes visible in the code
 
-1. Reproduce the reported slowness using a small, deterministic task and record:
-   - Time spent before the first model request.
-   - API request duration and response status.
-   - Time spent in retries and retry delays.
-   - Time spent in context budgeting or compaction.
-   - Time spent saving/loading session state.
-   - Time spent executing tools, including shell commands.
-   - Number of agent steps and total input/output tokens.
-2. Add lightweight, opt-in or debug-level timing instrumentation around these boundaries. Avoid logging prompts, secrets, or full tool output.
-3. Add tests that verify timing instrumentation does not alter behavior and that the measured stages are reported consistently.
+These are hypotheses for the timing data to confirm or rule out:
 
-## Phase 2: Inspect and isolate likely causes
+1. **Blocking, non-streamed requests.** `ApiClient._post_once`
+   (`academic_agent/api.py`) waits for the full response with `timeout=180`.
+   The spinner shows no elapsed time, so a slow model response looks like a
+   hang.
+2. **Retry backoff.** `RETRY_DELAYS = [2, 5, 15, 30]` adds up to 52 s per
+   call, and `Retry-After` can raise that to 300 s per retry. Retries are
+   printed to stderr only, where they are easy to miss.
+3. **Full history resent every turn.** `Agent._next_reply` sends
+   `self.messages` in full. Prompt tokens, and with them server-side latency,
+   grow with every step until compaction starts at the budget ratio.
+4. **Reasoning models.** `gpt-5`/o-series models (see `supports_json_mode`)
+   can take much longer per turn, independent of task size.
+5. **JSON-mode fallback.** A 400/422 on `responseFormat` costs one extra
+   round-trip, but only once per client because `json_mode` is cached.
+6. **Invalid-reply retries.** Up to `MAX_INVALID_RETRIES + 1` full requests
+   per turn, each sending the whole history again.
+7. **Compaction.** `_ensure_budget` makes an extra, often large, model call.
+8. Session save (`session.save`, a full JSON dump every step) and tool
+   execution are probably small, but they are measured anyway.
 
-Investigate each category rather than assuming the API is the only source:
+## Phase 1: Timing record (permanent, cheap)
 
-- **API latency:** request timeout behavior, retry classification, retry-after handling, repeated model metadata requests, and whether a request is unintentionally repeated.
-- **Context growth:** repeated serialization or excessive history sent to the model, unnecessary compaction, and expensive message transformations.
-- **Session persistence:** repeated full-session JSON writes, filesystem delays, and whether saves happen more often than required.
-- **Tool execution:** shell commands that wait unnecessarily, process timeout handling, and commands invoked by the agent that are unrelated to the task.
-- **Turn-loop behavior:** invalid-response retries, follow-up loops, max-step handling, and any accidental busy/wait cycle.
-- **User interface:** spinner or rendering code that blocks the loop or gives the appearance of a hung request.
+1. In `Agent._chat`, measure wall time per API call: the duration, the number
+   of retries and the seconds spent sleeping between them (count them in the
+   `on_retry` callback or a wrapper), prompt/completion tokens, and whether
+   the call was a normal turn, a correction retry or a compaction.
+2. Also time `_ensure_budget`, `_save` and each tool execution.
+3. Append one compact entry per step to a new `Session.timings` list. Store
+   numbers and categories only, never prompt or output text. Add the field
+   with a default so old session files still load (`Session.from_dict`
+   already ignores unknown keys).
+4. Show a one-line breakdown on the final screen (`ui.final_screen`): total
+   API time, retry wait, tool time, local overhead, steps, invalid replies and
+   compactions.
+5. Add elapsed seconds to the spinner text ("Thinking… 42s") so slow but
+   live requests can be told apart from hangs.
 
-Use profiling or targeted instrumentation only while diagnosing; do not retain noisy production logging.
+Tests: fake HTTP client and fake sleep in `test_api.py`/`test_loop.py`
+check that timings are recorded, retry waits are counted and behaviour is
+otherwise unchanged.
 
-## Phase 3: Implement the smallest safe fixes
+## Phase 2: Reproduce
 
-Implement only fixes supported by measurements. Candidate changes may include:
+1. Run a small fixed task, such as "list the files in tests/ and say how many
+   there are", several times with the default model and with one reasoning
+   model.
+2. Write down the timing breakdown and add a short "Performance" note in
+   `docs/troubleshooting.md` that explains how to read it.
 
-- Avoiding redundant API or model-information calls.
-- Reducing unnecessary context processing while preserving the configured history budget.
-- Making session saves atomic and efficient without weakening persistence guarantees.
-- Correcting retry or timeout behavior if requests are repeated or delayed incorrectly.
-- Preventing avoidable tool invocations or reducing unnecessary process overhead.
-- Improving progress reporting so unavoidable network or tool latency is clearly distinguished from a stalled session.
+## Phase 3: Fix what the numbers show
 
-Do not remove retries, safety checks, context limits, or persistence solely to improve apparent speed.
+Pick from these depending on the result. Make one focused change per commit,
+each with a regression test:
 
-## Phase 4: Regression coverage
+- **Model latency dominates:** improve progress output (elapsed time; print
+  retries through `ui` so they stay visible during the spinner). Document
+  model choice in `docs/configuration.md`. If the Academic AI API supports
+  streaming, evaluate it as a separate follow-up.
+- **Retries dominate:** check the retry classification (e.g. whether a
+  timeout after 180 s should be retried with the same timeout) and cap total
+  retry wait time.
+- **History size dominates:** compact or stub old tool results earlier, for
+  example by lowering the budget ratio or stubbing large tool outputs after N
+  turns. The existing context guarantees stay in place.
+- **Invalid replies dominate:** improve the correction prompt or protocol
+  instructions for the affected models.
+- **Local overhead (save, compaction, tools):** fix it there, e.g. skip
+  redundant saves when nothing changed.
 
-Add or update tests for:
-
-- API calls, retries, retry-after handling, and request timeout configuration.
-- Context budgeting and compaction performance-sensitive paths.
-- Session save behavior and atomic persistence.
-- Tool timeout and interruption behavior.
-- Agent turn-loop behavior, including invalid replies and multi-step sessions.
-- Any newly introduced instrumentation or configuration.
-
-Where practical, use fake HTTP clients, fake clocks/sleeps, temporary directories, and mocked executors so tests remain deterministic and fast.
+Retries, safety checks, context limits and persistence are not removed just
+to make sessions look faster.
 
 ## Acceptance criteria
 
-- A documented reproduction or benchmark exists for the original slowness.
-- The measured bottleneck is identified in code comments or documentation.
-- The fix improves the affected path without changing the public protocol or weakening safety and persistence guarantees.
-- Existing tests pass, and regression tests cover the diagnosed failure mode.
-- A representative small task completes without unexplained multi-second local overhead apart from measured API/service latency or explicitly requested tool work.
-- User-visible progress remains clear during unavoidable API retries, long requests, and tool execution.
-- The implementation does not log secrets, full prompts, or sensitive session contents.
-
-## Implementation order for the next agent
-
-1. Read the existing tests for `api.py`, `context.py`, `loop.py`, `session.py`, and `tools.py`.
-2. Run the complete test suite and capture the baseline.
-3. Add temporary or debug-gated timing measurements and reproduce the issue.
-4. Identify the dominant bottleneck from measurements.
-5. Implement one focused fix at a time, adding a regression test for each.
-6. Run targeted tests, then the full suite.
-7. Update user-facing documentation only if behavior or configuration changes.
-8. Review the final diff for unnecessary complexity, privacy leaks, and altered safety behavior.
+- Each session records a per-step timing breakdown without any prompt or
+  output text, and it is shown on the final screen.
+- A documented reproduction names the dominant bottleneck.
+- At least one fix for that bottleneck is in place, with a regression test.
+- The spinner shows elapsed time, and retries stay visible.
+- The full test suite passes, and the public CLI and protocol are unchanged
+  apart from the new optional timing output.

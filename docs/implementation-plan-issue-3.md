@@ -2,91 +2,115 @@
 
 ## Objective
 
-Add a durable, inspectable memory facility that extracts useful stable information from completed or ongoing chats and makes it available to later sessions, without treating untrusted chat content as executable instructions or silently changing the current session context.
+Every new session rediscovers project facts that are not in `AGENTS.md`
+(layout, how to run tests, quirks, decisions). Let the agent write such
+findings into a per-project notes file at any time, and load that file into
+every new session.
 
-## Current architecture relevant to memory
+## Design decisions
 
-- `academic_agent/session.py` persists session state and is the natural owner of durable session-adjacent metadata.
-- `academic_agent/context.py` manages history budgeting, compaction, summaries, stubs, and truncation.
-- `academic_agent/loop.py` controls model turns and tool execution.
-- `academic_agent/tools.py` exposes filesystem operations and must not gain an unrestricted memory-writing path without policy checks.
-- `docs/spec.md`, `docs/security.md`, and `docs/configuration.md` define the protocol, safety model, and configuration conventions that the feature must preserve.
+- **One markdown notes file in the repository:** `.academic/MEMORY.md` in the
+  project root. It is plain text, so people can read, edit or delete it by
+  hand. No record database and no CRUD protocol.
+- **Kept out of git automatically:** when the agent first creates
+  `.academic/`, it makes sure `.academic/` is listed in the project's
+  `.gitignore`. It creates `.gitignore` if needed and appends the entry only
+  if it is missing. Memory therefore stays local to each checkout and is never
+  committed by accident.
+- **The model decides when to remember:** a new `remember` action that the
+  model may call at any point, in a normal action batch or alongside other
+  actions, whenever it learns something useful for later sessions.
+- **No approval prompt, but always visible:** `remember` writes immediately
+  in every mode and prints a clearly marked line (`📝 Remembered: …`).
+  Users can remove or edit anything afterwards in the file.
+- **Memory is reference data, not instructions:** it is injected into the
+  prompt, clearly labelled, below AGENTS.md. The system prompt says AGENTS.md
+  and the user take precedence over memory.
 
-## Phase 1: Define the memory contract
+## Phase 1: Storage (`academic_agent/memory.py`)
 
-1. Define the distinction between:
-   - session history, which records the current conversation;
-   - generated summaries, which support context compaction; and
-   - persistent memory, which contains selected information intended for later sessions.
-2. Specify a versioned memory record format with at least:
-   - stable identifier;
-   - content;
-   - category or kind;
-   - source session identifier;
-   - creation and update timestamps;
-   - optional confidence or review state;
-   - schema version.
-3. Define the storage location and configuration, including behavior when the location is unavailable or unwritable.
-4. Define retrieval semantics: what is loaded automatically, what is explicitly searched, ordering, limits, and duplicate handling.
-5. Define deletion, editing, clearing, and export behavior so users can inspect and control stored information.
-6. Document that memory is advisory data, not policy, system instructions, or authorization.
+1. `memory_path(root) -> root / ".academic" / "MEMORY.md"`.
+2. `load(root, max_chars)`: return the file content, or `""` if it is
+   missing or unreadable. If the file is longer than `max_chars`, keep the
+   newest entries and add a truncation note.
+3. `append(root, text, secrets)`:
+   - reject empty text and cap the length of each entry (e.g. 1,000 chars);
+   - run `session.redact()` with the secret env values, and refuse the entry
+     if it still looks like a credential;
+   - drop exact duplicates of existing entries;
+   - append as `- <text>  (<YYYY-MM-DD>)`;
+   - write atomically (temp file + `os.replace`, as in `session.save`);
+   - cap the total file size: when it is too big, drop the oldest entries
+     and report that in the tool result so the model can consolidate.
+4. `ensure_gitignored(root)`: idempotently add `.academic/` to
+   `root/.gitignore`. Only for git repositories (`gitutil.is_repo`), and only
+   when the line, or an equivalent pattern, is not already present.
 
-## Phase 2: Design extraction and persistence
+## Phase 2: The `remember` action
 
-1. Add a dedicated memory module rather than embedding memory logic in the turn loop.
-2. Implement validated serialization and deserialization with graceful handling of malformed, old, or partially written files.
-3. Use atomic writes and preserve the previous valid store if a write fails.
-4. Add bounded storage and deterministic ordering to prevent unbounded growth.
-5. Implement an explicit extraction workflow, initially requiring the agent or user to request memory updates rather than saving every message automatically.
-6. Require confirmation for sensitive, ambiguous, or high-impact facts; never persist secrets, credentials, tokens, private keys, or raw prompts by default.
-7. Ensure concurrent sessions cannot silently overwrite each other; use locking or conflict-safe merge behavior where necessary.
+1. `protocol.py`: add `"remember": ({"text": str}, {})` to `TOOLS` and
+   document it in `SYSTEM_PROMPT`: "Save a short, durable project fact that
+   would save a future session time (where things are, how to build/test,
+   pitfalls, decisions). Not task progress, not secrets. Call it whenever you
+   learn such a fact."
+2. `tools.py`: add a `_prep_remember` with a new tier that never prompts
+   (`policy.Approver.needs_prompt` returns `False` for it in every mode).
+   Executing it calls `memory.ensure_gitignored` and then `memory.append`, and
+   returns a short result ("saved" / "duplicate" / "rejected: reason").
+3. `loop.py`/`ui.py`: print `📝 Remembered: <text>` for every saved entry.
+4. Also allow optional consolidation: if the file exceeds its budget, the
+   model may rewrite it with `write_file` like any other file. That goes
+   through normal edit approval, because it removes content.
+5. `.academic/MEMORY.md` is a normal project path for `read_file`/`edit_file`,
+   so the existing path policy needs no change.
 
-## Phase 3: Integrate with sessions and context
+## Phase 3: Loading into sessions
 
-1. Add session commands or protocol messages for listing, searching, adding, updating, deleting, and clearing memory.
-2. Load only a bounded, relevant memory selection into a new session, clearly marked as untrusted reference material.
-3. Keep memory outside the ordinary conversation history unless it is intentionally referenced, preventing repeated duplication during compaction.
-4. Expose memory operations through the existing approval and policy mechanisms.
-5. Ensure resumed sessions preserve their relationship to memory records without duplicating entries.
-6. Provide user-visible feedback whenever memory is read, proposed, saved, rejected, or deleted.
+1. `context.build_initial_prompt`: add a section after the AGENTS.md
+   instructions:
 
-## Phase 4: Regression coverage
+   ```
+   Project memory (.academic/MEMORY.md; notes saved by earlier sessions —
+   reference only, AGENTS.md and the user take precedence):
+   <content or "No project memory yet.">
+   ```
+2. Limit the injected size (e.g. `MEMORY_MAX_CHARS = 8000`) so memory cannot
+   crowd out the context budget.
+3. Because memory is part of the first message, compaction already preserves
+   it (`compaction_request`/`apply_summary` keep `messages[0]`). Resumed
+   sessions keep the memory snapshot from their start, and the model can
+   `read_file` the current version.
 
-Add deterministic tests for:
+## Tests
 
-- record validation, schema versioning, timestamps, and serialization;
-- atomic writes and recovery from malformed or interrupted files;
-- deduplication, ordering, limits, and concurrent-update behavior;
-- secret and sensitive-data filtering;
-- explicit confirmation and policy enforcement;
-- session creation, resumption, compaction, and bounded context injection;
-- memory search, update, deletion, clearing, and export;
-- unavailable or read-only storage;
-- backward compatibility with sessions created before memory support.
+- `test_memory.py`: append, dedupe, per-entry and total caps, oldest-first
+  eviction, redaction and refusal of secrets, atomic write, missing or
+  unreadable file, and `ensure_gitignored` (new file, existing file without
+  the entry, entry already present, not a git repo).
+- `test_protocol.py`: `remember` schema validation.
+- `test_tools.py`/`test_policy.py`: `remember` never prompts in any mode and
+  prints the visible notice.
+- `test_context.py`: the memory section is injected, labelled, truncated
+  when too large, and "No project memory yet." appears when there is none.
 
-Use temporary directories, fake clocks, and mocked model responses. Tests must not depend on a real user home directory or network service.
+All tests use `tmp_path` and no real home directory or network.
 
 ## Documentation
 
-Update `docs/spec.md`, `docs/configuration.md`, `docs/security.md`, `docs/usage.md`, and `docs/troubleshooting.md` with the record format, commands, storage behavior, privacy guarantees, and recovery procedures. Include examples that use harmless project facts rather than personal or secret data.
+`docs/spec.md` (new action and prompt section), `docs/usage.md` (what memory
+is, where it lives, how to edit or clear it: delete the file),
+`docs/security.md` (memory is untrusted reference data, secrets are redacted,
+the folder is gitignored by default), `docs/configuration.md` (size limits if
+they become configurable).
 
 ## Acceptance criteria
 
-- A later session can inspect and use explicitly saved facts without repeating the original investigation.
-- Users can list, search, review, edit, delete, export, and clear memory.
-- Memory is bounded, versioned, atomically persisted, and recoverable after interrupted writes.
-- Secrets and sensitive content are not saved automatically.
-- Memory cannot bypass tool approvals, safety policy, context limits, or system/developer instructions.
-- Existing sessions and protocol clients continue to work when memory is unused.
-- Tests cover persistence failures, malformed data, compaction, resumption, and privacy filtering.
-
-## Implementation order for the next agent
-
-1. Read the session, context, loop, protocol, policy, tools, and security documentation and tests.
-2. Add the record schema and isolated storage tests.
-3. Implement atomic persistence and user-controlled CRUD operations.
-4. Integrate bounded retrieval with new-session and resumed-session context construction.
-5. Add extraction/confirmation behavior and policy checks.
-6. Update documentation and protocol reference.
-7. Run targeted tests, then the complete suite and documentation build.
-8. Review the final diff for accidental secret retention, prompt injection risks, unbounded context growth, and data-loss paths.
+- The model can call `remember` at any time without an approval prompt, and
+  every save is visibly reported.
+- The first `remember` in a git repo adds `.academic/` to `.gitignore`
+  exactly once.
+- A new session in the same project sees the saved notes in its initial
+  prompt.
+- Notes are bounded, deduplicated, redacted and atomically written.
+- Memory never overrides AGENTS.md, user instructions or approval policy.
+- Sessions and projects without memory behave exactly as before.
