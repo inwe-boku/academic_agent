@@ -45,7 +45,9 @@ markdown_extensions:
       permalink: true
   - attr_list
   - def_list
+  - pymdownx.details
   - pymdownx.highlight
+  - pymdownx.keys
   - pymdownx.superfences
 
 nav:

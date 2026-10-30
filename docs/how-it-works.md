@@ -70,8 +70,9 @@ actions after a failure or rejection as `SKIPPED`.
 
 - **Initial context:** the first `user` message holds the system prompt (the API
   accepts only the roles `user` and `assistant`), the project root, your task, a
-  file listing (3 levels, 300 entries, `.gitignore` honoured) and all
-  `AGENTS.md` files from `/` down to the project root.
+  file listing (3 levels, 300 entries, `.gitignore` honoured), all
+  `AGENTS.md` files from `/` down to the project root and the
+  [project memory](usage.md#project-memory).
 - **Tool output** is capped at 200 lines or 20,000 characters per result,
   keeping head and tail.
 - **History budget:** the agent estimates tokens from the `promptTokens` of the

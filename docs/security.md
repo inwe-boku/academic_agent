@@ -3,6 +3,17 @@
 The agent lets a language model read and change files and run shell commands.
 Treat it with the same care as running a script you did not write.
 
+??? tip "Short checklist for safe use"
+
+    1. Work in a git repository and commit before you start, so `/undo` and
+       `git diff` show and revert every change.
+    2. Keep the default approval mode until you know how the agent behaves.
+    3. Read every command before approving it, not only the model's reason.
+    4. Do not run the agent on confidential data (see
+       [What is sent to the API](#what-is-sent-to-the-api)).
+    5. Keep your Client-Secret in the config file with `chmod 600`, never in a
+       repository.
+
 ## What the agent enforces
 
 - **Confinement of file tools.** Every path is resolved against the project root
@@ -45,6 +56,14 @@ segment, including `bash -c`, `find -exec` and `xargs`) if it contains:
   `apt`/`apt-get`
 - any path argument outside the project root, and any reference to `~` or
   `$HOME`
+
+??? info "Why is `git pull` flagged but `git push` not?"
+
+    `git pull`, `git fetch` and `git clone` are network downloads, like
+    `curl`, and `git pull` can change many files at once. Plain `git push`
+    only publishes commits that already exist locally, and committing and
+    pushing are part of the intended workflow. Protect `main` on the server
+    if the agent must not push there.
 
 Flagged commands always ask, **even with `--auto-approve`**, and cannot be
 approved with "always". This is a safety net, not a guarantee: a script or
