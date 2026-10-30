@@ -4,6 +4,7 @@
 
 | Message | Cause and fix |
 | --- | --- |
+| `academic: command not found` | `~/.local/bin` is not on your PATH yet. Open a new terminal, or follow [Getting started, step 4](getting-started.md#4-put-academic-on-your-path). |
 | `Not configured: ACADEMIC_AI_...` | The named variables are missing or still placeholders. Check that the config file exists at `~/.config/academic-agent/env` and that you start the agent through `academic`. |
 | `Warning: ... is readable by group or others` | Run `chmod 600 ~/.config/academic-agent/env`. |
 | `Error: virtual environment not found` | Run the commands in [Getting started](getting-started.md), step 2. |
@@ -31,7 +32,7 @@ the response body.
 
 Transient failures (connection errors, timeouts, HTTP 429/5xx) are retried
 automatically up to 4 times. If the agent still stops with
-`Progress is saved. Continue with: academic --resume`, run `academic --resume`
+`Progress is saved. Continue later with: academic --resume`, run `academic --resume`
 in the same directory. See [Resuming a session](usage.md#resuming-a-session).
 
 - `requests.exceptions.ConnectionError`: no connection, wrong host name, or the
@@ -89,3 +90,17 @@ no prompt or output text.
 Run `academic --list-models`. If that works, authentication and the host are
 correct and the problem is in the chat request or the model's behavior. If it
 fails, the problem is configuration or network.
+
+??? tip "Reporting a bug"
+
+    Open an issue at
+    [github.com/inwe-boku/academic_agent/issues](https://github.com/inwe-boku/academic_agent/issues).
+    Include the command you ran, the error message, the model name and the
+    output of `git -C ~/.local/share/academic-agent log -1 --oneline` (your
+    version). **Never paste your Client-Secret** or the content of the config
+    file.
+
+??? info "Are you on the latest version?"
+
+    Some problems are already fixed in a newer version. See
+    [Updating](getting-started.md#updating).

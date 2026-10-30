@@ -50,6 +50,19 @@ cd ~/projects/my-project
 academic "Explain this project and list the most important missing documentation."
 ```
 
+## Updating
+
+```bash
+cd ~/.local/share/academic-agent
+git pull --ff-only
+.venv/bin/pip install -r requirements.txt
+academic --list-models
+```
+
+Your config file and the `academic` link are not changed. See
+[Updating](docs/getting-started.md#updating) for checking what changed and
+fixing a failed pull.
+
 ## Basic Usage
 
 ```bash

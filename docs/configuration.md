@@ -19,6 +19,12 @@ chmod 600 ~/.config/academic-agent/env
 precedence over the file, so `ACADEMIC_AI_MODEL=gpt-4o academic "..."` uses
 `gpt-4o` for one run.
 
+??? tip "Change the default model"
+
+    Open the config file in an editor (`nano ~/.config/academic-agent/env`),
+    change the value of `ACADEMIC_AI_MODEL` to a name from
+    `academic --list-models`, and save. The next run uses it.
+
 If you call `academic_agent.py` or `python -m academic_agent` directly instead of
 using the launcher, the file is **not** read; export the variables yourself.
 

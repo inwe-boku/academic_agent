@@ -14,11 +14,17 @@ cd ~/projects/my-project
 academic "Explain this project and list the most important missing documentation."
 ```
 
+??? tip "New to the terminal?"
+
+    Start with [Getting started](getting-started.md). It explains every step,
+    including how to open a terminal and paste commands. Already installed?
+    See [Updating](getting-started.md#updating) to get the latest version.
+
 ## Documentation
 
 | Page | What it covers |
 | --- | --- |
-| [Getting started](getting-started.md) | Install, configure, first run (10 minutes) |
+| [Getting started](getting-started.md) | Install, configure, first run (10 minutes), updating |
 | [Agent setup prompt](agent-setup-prompt.md) | Copy-paste prompt that lets a coding agent do the setup for you |
 | [Getting API access at BOKU](boku-api-access.md) | Where the credentials, host and model names come from |
 | [Usage](usage.md) | Commands, flags, writing good tasks, `AGENTS.md` |

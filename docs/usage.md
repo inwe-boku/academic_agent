@@ -29,6 +29,22 @@ cd ~/projects/my-project
 academic "Add a unit test for parse_date and run the test suite"
 ```
 
+??? tip "Which approval mode should I use?"
+
+    - **No flag (default):** start here. You see and approve every file
+      change and every command.
+    - **`--accept-edits`:** once you trust the agent with a project that is
+      under git, so you can review and undo changes with `/diff` and `/undo`.
+      Commands still ask.
+    - **`--auto-approve`:** only for throwaway directories or when everything
+      is committed. Read [Security](security.md) first.
+
+??? info "What does \"quoting\" the task mean?"
+
+    Put the task in double quotes, as in the examples. Without quotes the
+    terminal treats some characters specially: `?`, `*`, `!`, `'`, `>` and `&`
+    can change or break the task text before the agent sees it.
+
 Pick a model for a single run without editing the config:
 
 ```bash
@@ -39,6 +55,10 @@ stdin must be a terminal unless you pass `--auto-approve`; otherwise the agent
 stops with an error instead of hanging on a prompt.
 
 ## Running from other programs
+
+You only need this section if you call the agent from a script or another
+tool. For normal use in the terminal, skip to
+[What a session looks like](#what-a-session-looks-like).
 
 `--json` is for callers such as scripts or Claude Code. The agent never reads
 stdin. All human-readable output goes to stderr, and stdout gets exactly one
@@ -134,6 +154,12 @@ At the prompt:
   dangerous commands).
 - Anything else rejects the action and sends your text to the model as feedback.
 
+??? tip "Rejecting with a comment is often better than `n`"
+
+    A plain `n` only tells the model "no". A comment such as
+    *"don't touch the tests, fix the function instead"* rejects the action and
+    tells the model what to do next, which usually saves a few turns.
+
 ### Slash commands
 
 These work at every prompt (approval, question, final screen):
@@ -160,6 +186,12 @@ These work at every prompt (approval, question, final screen):
   elsewhere stops the agent and keeps the session.
 
 ## Undo with git
+
+??? tip "Commit before you start"
+
+    Run `git status` before starting the agent. If it lists changes, commit
+    them first (`git add -A && git commit -m "before agent"`). Then `/undo` can
+    restore every file, and `git diff` shows exactly what the agent changed.
 
 At start the agent records the current commit and which files already had
 uncommitted changes.
@@ -205,8 +237,9 @@ ${XDG_STATE_HOME:-~/.local/state}/academic-agent/<hash-of-directory>.json
 
 - One file per working directory, overwritten atomically at every step. The
   directory has mode `700`, the file `600`.
-- Content: task, messages, touched files, start commit, token totals and the
-  list of commands run.
+- Content: task, messages, touched files, which files the model has read (so
+  edits still work after `--resume`), start commit, token totals and the list
+  of commands run.
 - The file is deleted only when you accept the final `done` screen. Stopped or
   failed sessions stay on disk.
 - Known secret patterns (bearer tokens, `sk-...` keys, private keys, values of
@@ -232,6 +265,17 @@ academic --clear         # delete the session of the current directory
 - To only ask a question, say so: *"Do not modify anything. Explain how the
   configuration is loaded."*
 
+??? tip "Example of a well-written task"
+
+    ```bash
+    academic "The function load_config in src/config.py crashes when the file
+    is empty. Read it, explain the cause, then fix it so an empty file returns
+    an empty dict. Add a test in tests/test_config.py and run pytest -q."
+    ```
+
+    It names the file, the symptom, the expected behaviour, where the test
+    goes and how to check the result.
+
 ## Project instructions with `AGENTS.md`
 
 The agent reads every `AGENTS.md` from the filesystem root down to the current
@@ -247,6 +291,13 @@ working directory come later and therefore take precedence:
 
 Because `AGENTS.md` content steers the model, review files from untrusted
 repositories before running the agent there.
+
+??? tip "Good things to put in `AGENTS.md`"
+
+    - how to run the tests and linters
+    - folders the agent must not touch (raw data, generated files)
+    - coding style and language of comments
+    - your git workflow, for example "always work on a new branch"
 
 ## Project memory
 
