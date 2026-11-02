@@ -26,6 +26,9 @@ Treat it with the same care as running a script you did not write.
   disk since.
 - **Tiered approval.** Reads are automatic; file changes show a diff and ask;
   shell commands ask. See [Usage](usage.md#approval).
+- **Read-only sub-agents.** Sub-agents (`delegate`) cannot write files and
+  may only run single `git`/`gh` read commands; see `policy.readonly_reason`.
+  Starting them asks like a shell command, because they cost API calls.
 - **Scrubbed environment.** `run` executes in the project root with
   `ACADEMIC_AI_*` and every variable whose name contains `TOKEN`, `SECRET`,
   `KEY` or `PASSWORD` removed.

@@ -134,9 +134,15 @@ A dim status line after each turn shows tokens and the estimated cost.
 | `delete_file` | Delete one file | write |
 | `run` | Shell command in the project root (default 120 s, max 600 s) | exec |
 | `remember` | Save a project fact to the [project memory](#project-memory) | memory (never asks) |
+| `delegate` | Starts up to 6 read-only sub-agents in parallel and returns their reports | exec |
 
 `edit_file` and `write_file` refuse to change a file that the model has not read
 in this session or that changed on disk since it was read.
+
+Sub-agents started with `delegate` have their own conversation and can only
+use `read_file`, `list_dir`, `search` and single read-only `git`/`gh` commands
+(no pipes, redirects, `$`, posting or file output); they are not asked about
+and cannot ask you anything. Their tokens count towards the session cost.
 
 ### Approval
 
@@ -275,6 +281,28 @@ academic --clear         # delete the session of the current directory
 
     It names the file, the symptom, the expected behaviour, where the test
     goes and how to check the result.
+
+## Built-in skills
+
+A skill is a set of task-specific instructions in `academic_agent/skills/`. If
+the task matches a skill's trigger, its instructions are added to the first
+prompt.
+
+| Skill | Triggered by | Does |
+| --- | --- | --- |
+| `review-pr` | "review PR 12", "review pull request #12", "PR review" | Reads the project docs/specs and the PR with `gh`, lets four sub-agents (correctness, spec consistency, tests and risks, design) review it, verifies their findings and posts a Sourcery-style "Reviewer's Guide" comment plus a review with inline comments. Add "dry run" to the task to only write the files to `.academic-review/`. |
+
+```bash
+academic "review PR 120"
+academic "review PR 120 (dry run: do not post)"
+```
+
+A review is expensive: on a 150-300 line PR with a large model expect roughly
+40 API calls, 0.5-1.3 M input tokens and 15-25 minutes, because each
+sub-agent reads the diff and the code itself. Use `/cost` to watch it.
+
+To add a skill, put a Markdown file with a `name`, `description` and
+`trigger` (regular expression) header into `academic_agent/skills/`.
 
 ## Project instructions with `AGENTS.md`
 

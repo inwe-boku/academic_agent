@@ -14,7 +14,7 @@ Academic AI chat API (stateless, no native tool calling, roles `user` and
 | **Safe** | The model can only change files inside the project root, and every change is approved, reviewable and reversible. |
 | **Clean** | No side effects the user did not ask for; small, tested modules. |
 
-Non-goals: streaming, sub-agents, a web UI, OS-level sandboxing (a later option),
+Non-goals: streaming, writing sub-agents (read-only ones via `delegate` exist), a web UI, OS-level sandboxing (a later option),
 supporting other APIs.
 
 ## 2. Decisions taken

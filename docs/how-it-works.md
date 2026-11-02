@@ -100,6 +100,8 @@ failed run can be continued with `academic --resume`.
 | `academic_agent/api.py` | HTTP, retry, usage, model info |
 | `academic_agent/protocol.py` | System prompt, schema, parsing, validation |
 | `academic_agent/tools.py` | File tools and `run` |
+| `academic_agent/subagents.py` | Read-only sub-agents for `delegate` |
+| `academic_agent/skills/` | Built-in skills (Markdown) and their loader |
 | `academic_agent/policy.py` | Path confinement, tiers, dangerous-command check |
 | `academic_agent/context.py` | Initial context, truncation, history budget |
 | `academic_agent/memory.py` | Project memory (`.academic/MEMORY.md`), `.gitignore` entry |
