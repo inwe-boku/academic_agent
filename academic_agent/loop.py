@@ -1,5 +1,6 @@
 """Turn loop: ask the model, validate, approve and run actions."""
 
+import threading
 import time
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from .context import (HistoryBudget, apply_summary, compaction_request,
 from .policy import Approver, Policy, parse_approval
 from .protocol import CORRECTION, ProtocolError, parse_reply
 from .session import Session, redact
+from .subagents import run_subagents
 from .tools import Executor, ToolError, ToolResult, describe
 
 MAX_STEPS = 100
@@ -57,6 +59,7 @@ class Agent:
         self.secrets = list(secrets)
         self.executor = executor or Executor(policy or Policy(self.root), session,
                                              secrets=self.secrets)
+        self.executor.delegate_runner = self._delegate
         self.budget = HistoryBudget(model_info.context_window if model_info else None)
         # interactive=False never reads stdin: every point that would ask the
         # user ends the run with a structured result (see StopForCaller).
@@ -329,7 +332,9 @@ class Agent:
                 print(ui.color(f"  📝 Remembered: {text}", ui.FG_MAGENTA))
             if action.tool == "run" or not result.ok:
                 ui.show_output_tail(result.output)
-            body = truncate_output(redact(result.output, self.secrets))
+            body = redact(result.output, self.secrets)
+            body = (truncate_output(body, max_lines=2000, max_chars=80_000)
+                    if action.tool == "delegate" else truncate_output(body))
             results.append(f"{header}: {status}" + (f"\n{body}" if body else ""))
             if not result.ok:
                 stopped = True
@@ -390,7 +395,7 @@ class Agent:
     def _execute(self, prepared) -> ToolResult:
         start = self.clock()
         try:
-            if prepared.tier == "exec":
+            if prepared.action.tool == "run":
                 with ui.Spinner("⏳ Running shell command...", interval=0.1,
                                 show_elapsed=True):
                     return prepared.execute()
@@ -401,6 +406,37 @@ class Agent:
             return ToolResult(False, f"{type(exc).__name__}: {exc}")
         finally:
             self._add_timing(tools_s=self.clock() - start, tools=1)
+
+    def _delegate(self, agents: list) -> ToolResult:
+        """Run read-only sub-agents and account for their usage."""
+        log_lock = threading.Lock()
+
+        def log(text: str) -> None:
+            with log_lock:
+                ui.dim(f"  {text}")
+
+        start = self.clock()
+        results = run_subagents(
+            agents, api=self.api, root=self.root,
+            context_window=self.budget.window, secrets=self.secrets, log=log)
+        self._add_timing(api_s=self.clock() - start,
+                         calls=sum(r.steps for r in results))
+        s = self.session
+        for r in results:
+            self._add_timing(prompt_tokens=r.prompt_tokens,
+                             completion_tokens=r.completion_tokens)
+            s.tokens_in += r.prompt_tokens
+            s.tokens_out += r.completion_tokens
+            cost = (self.model_info.cost(r.prompt_tokens, r.completion_tokens)
+                    if self.model_info else None)
+            s.cost_usd = None if cost is None or s.cost_usd is None else s.cost_usd + cost
+        ui.status_line(sum(r.prompt_tokens for r in results),
+                       sum(r.completion_tokens for r in results),
+                       s.tokens_in, s.tokens_out, s.cost_usd)
+        sections = [f"=== sub-agent {r.name} ({'finished' if r.ok else 'FAILED'}, "
+                    f"{r.steps} turns) ===\n{r.report}" for r in results]
+        # Always OK so the batch continues; failures are named in the report.
+        return ToolResult(True, "\n\n".join(sections))
 
     def _ask_approval(self, tool: str, allow_always: bool) -> tuple[str, str]:
         while True:
