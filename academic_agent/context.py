@@ -7,6 +7,7 @@ from pathlib import Path
 from . import gitutil, memory
 from .policy import is_denied_rel
 from .protocol import SYSTEM_PROMPT
+from .skills import matching_skills
 
 MAX_OUTPUT_LINES = 200
 MAX_OUTPUT_CHARS = 20_000
@@ -101,6 +102,16 @@ def read_agents_files(cwd: Path) -> str:
     return "\n\n".join(sections)
 
 
+def skill_section(task: str) -> str:
+    """Instructions of the built-in skills that match the task, or ""."""
+    parts = [f"--- skill: {s.name} ({s.description}) ---\n{s.body}"
+             for s in matching_skills(task)]
+    if not parts:
+        return ""
+    return ("\n\nSkill instructions (follow them for this task; AGENTS.md and "
+            "the user take precedence):\n" + "\n\n".join(parts))
+
+
 def build_initial_prompt(root: Path, task: str) -> str:
     """First user message: system prompt plus project context.
 
@@ -120,7 +131,7 @@ Project file listing (3 levels, .gitignore honoured):
 {tree}
 
 AGENTS.md instructions:
-{read_agents_files(root)}
+{read_agents_files(root)}{skill_section(task)}
 
 Project memory ({memory.memory_rel()}; notes saved by earlier sessions,
 reference only: AGENTS.md and the user take precedence):

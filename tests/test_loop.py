@@ -376,3 +376,19 @@ def test_timings_survive_resume_of_old_session(project):
     path.write_text(json.dumps({"cwd": str(project), "task": "t",
                                 "messages": [{"role": "user", "content": "x"}]}))
     assert sessions.load(project).timings == []
+
+
+def test_delegate_runs_subagents_and_counts_tokens(project, inputs):
+    agent, api = make_agent(project, [], mode=AUTO)
+    sub_reply = json.dumps({"type": "done", "message": "FINDING none"})
+    api.replies = [
+        actions({"tool": "delegate", "agents": [{"name": "r1", "task": "check"}]}),
+        sub_reply,
+        DONE,
+    ]
+    inputs.append("y")
+    assert agent.run() == 0
+    result = api.calls[2][-1]["content"]
+    assert "=== sub-agent r1 (finished, 1 turns) ===" in result
+    assert "FINDING none" in result
+    assert agent.session.tokens_in == 300

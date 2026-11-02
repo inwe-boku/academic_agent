@@ -39,6 +39,12 @@ Actions (paths are relative to the project root):
       things are, how to build/test/run, conventions, pitfalls, decisions.
       Call it yourself whenever you learn such a fact; no approval needed.
       Not for task progress, guesses or secrets. One fact per call.
+  {"tool": "delegate",    "agents": [{"name": "tests", "task": "self-contained instructions"}]}
+      Starts up to 6 read-only sub-agents that work in parallel, each with a
+      fresh context. They can read files and run read-only git/gh commands,
+      but cannot change anything, ask the user or see this conversation, so
+      each task must contain everything the sub-agent needs. Returns each
+      sub-agent's final report.
 
 Rules:
 1. Read and obey the AGENTS.md instructions supplied in the context. The
@@ -119,7 +125,9 @@ TOOLS = {
     "delete_file": ({"path": str}, {}),
     "run": ({"command": str}, {"timeout": int}),
     "remember": ({"text": str}, {}),
+    "delegate": ({"agents": list}, {}),
 }
+MAX_SUBAGENTS = 6
 
 CORRECTION = "Invalid reply: {error}. Respond with one JSON object."
 
@@ -199,7 +207,28 @@ def validate_action(raw, index: int) -> Action:
             raise ProtocolError(
                 f"{where} ({tool}): {name!r} must be of type {typ.__name__}"
             )
+    if tool == "delegate":
+        _validate_agents(args["agents"], where)
     return Action(tool, args)
+
+
+def _validate_agents(agents: list, where: str) -> None:
+    if not 1 <= len(agents) <= MAX_SUBAGENTS:
+        raise ProtocolError(f"{where} (delegate): 'agents' needs 1 to "
+                            f"{MAX_SUBAGENTS} entries")
+    names = set()
+    for i, agent in enumerate(agents):
+        if not isinstance(agent, dict) or set(agent) != {"name", "task"}:
+            raise ProtocolError(f"{where} (delegate): agents[{i}] must be an "
+                                "object with exactly 'name' and 'task'")
+        for key in ("name", "task"):
+            if not isinstance(agent[key], str) or not agent[key].strip():
+                raise ProtocolError(f"{where} (delegate): agents[{i}].{key} "
+                                    "must be a non-empty string")
+        if agent["name"] in names:
+            raise ProtocolError(f"{where} (delegate): duplicate name "
+                                f"{agent['name']!r}")
+        names.add(agent["name"])
 
 
 def validate_reply(data: dict) -> Reply:

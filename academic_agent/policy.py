@@ -24,6 +24,7 @@ TIERS = {
     "delete_file": "write",
     "run": "exec",
     "remember": "memory",
+    "delegate": "exec",  # read-only, but costs API calls: asks like a command
 }
 
 # Approval modes
@@ -326,3 +327,50 @@ def dangerous_reason(command: str, root) -> str | None:
 
 def is_dangerous(command: str, root) -> bool:
     return dangerous_reason(command, root) is not None
+
+
+# ---- Read-only commands (sub-agents) ----------------------------------------
+
+_READONLY_GIT = {"show", "diff", "log", "blame", "ls-files", "ls-tree",
+                 "cat-file", "rev-parse", "merge-base", "grep", "status"}
+_READONLY_GH = {("pr", "view"), ("pr", "diff"), ("pr", "list"), ("pr", "checks"),
+                ("issue", "view"), ("issue", "list"), ("repo", "view"),
+                ("api",)}
+# Arguments that write files, run programs or send data.
+_GIT_WRITING_ARGS = {"--output", "-O", "--open-files-in-pager", "--ext-diff"}
+_GH_WRITING_ARGS = {"--web", "-w", "-X", "--method", "-f", "-F", "--field",
+                    "--raw-field", "--input"}
+_SHELL_CHARS = set(";|&<>$`()\n\\")
+
+
+def readonly_reason(command: str, root) -> str | None:
+    """Why a command is not allowed for a read-only sub-agent, or None.
+
+    Allowed: one git or gh read command, without shell syntax, global git
+    options or arguments that write files, open programs or send data.
+    """
+    bad = _SHELL_CHARS.intersection(command)
+    if bad:
+        return f"shell syntax is not allowed ({''.join(sorted(bad))!r})"
+    try:
+        words = shlex.split(command)
+    except ValueError as exc:
+        return f"cannot parse command ({exc})"
+    if not words:
+        return "empty command"
+    name, args = words[0], words[1:]
+    if name == "git":
+        if not args or args[0] not in _READONLY_GIT:
+            return "only git " + ", ".join(sorted(_READONLY_GIT)) + " are allowed"
+        writing = _GIT_WRITING_ARGS
+    elif name == "gh":
+        if tuple(args[:1]) not in _READONLY_GH and tuple(args[:2]) not in _READONLY_GH:
+            return ("only gh pr view/diff/list/checks, issue view/list, "
+                    "repo view and api (GET) are allowed")
+        writing = _GH_WRITING_ARGS
+    else:
+        return "only read-only git and gh commands are allowed"
+    for word in args:
+        if word.split("=", 1)[0] in writing:
+            return f"argument {word} is not allowed"
+    return dangerous_reason(command, root)

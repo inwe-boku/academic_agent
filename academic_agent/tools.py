@@ -62,6 +62,9 @@ def describe(action: Action) -> str:
     if action.tool == "remember":
         text = " ".join(a["text"].split())
         return text[:80] + ("…" if len(text) > 80 else "")
+    if action.tool == "delegate":
+        return f"{len(a['agents'])} sub-agents: " + ", ".join(
+            agent["name"] for agent in a["agents"])
     return a.get("path", ".")
 
 
@@ -117,6 +120,9 @@ class Executor:
         self.secrets = list(secrets)
         # shared with the session so it survives --resume
         self._read: dict[str, list[int]] = session.read_stamps
+        # Runs the delegate tool: list of {"name", "task"} -> ToolResult.
+        # Set by the main agent; sub-agents have none.
+        self.delegate_runner: Callable[[list], ToolResult] | None = None
 
     # -- bookkeeping --
 
@@ -387,6 +393,14 @@ class Executor:
 
         return Prepared(action, TIERS["run"], describe(action), execute,
                         dangerous=dangerous_reason(command, self.root))
+
+    def _prep_delegate(self, action):
+        runner = self.delegate_runner
+        if runner is None:
+            raise ToolError("delegate is not available here")
+        agents = action.args["agents"]
+        return Prepared(action, TIERS["delegate"], describe(action),
+                        lambda: runner(agents))
 
     def run_command(self, command: str, timeout: int) -> ToolResult:
         proc = subprocess.Popen(
